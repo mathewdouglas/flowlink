@@ -7,6 +7,8 @@ import prisma from '../../../lib/prisma';
 export default async function handler(req, res) {
   const { organizationId } = req.query;
   
+  console.log(`sync-config API called: ${req.method} for org: ${organizationId}`);
+  
   if (!organizationId) {
     return res.status(400).json({ error: 'Organization ID is required' });
   }
@@ -50,10 +52,14 @@ export default async function handler(req, res) {
     // Start or configure sync job
     const { action, interval } = req.body;
     
+    console.log(`POST action: ${action} for org: ${organizationId}`);
+    
     try {
       switch (action) {
         case 'start':
+          console.log('Calling startSyncJob...');
           await zendeskSyncService.startSyncJob(organizationId, interval);
+          console.log('startSyncJob completed successfully');
           return res.status(200).json({ 
             success: true, 
             message: 'Sync job started successfully' 
