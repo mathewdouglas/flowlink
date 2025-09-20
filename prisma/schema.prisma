@@ -177,10 +177,12 @@ model SyncLog {
   integrationId    String      @map("integration_id")
   syncType         String?     @map("sync_type")
   status           String?
+  message          String?
   recordsProcessed Int         @default(0) @map("records_processed")
   recordsUpdated   Int         @default(0) @map("records_updated")
   recordsCreated   Int         @default(0) @map("records_created")
   errorMessage     String?     @map("error_message")
+  syncedAt         DateTime    @default(now()) @map("synced_at")
   startedAt        DateTime    @default(now()) @map("started_at")
   completedAt      DateTime?   @map("completed_at")
   integration      Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)

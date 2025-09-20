@@ -224,7 +224,6 @@ const SystemIntegrationDashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSystem, setFilterSystem] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [showAddMapping, setShowAddMapping] = useState(false);
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
@@ -290,12 +289,16 @@ const SystemIntegrationDashboard = () => {
   }
 
   // Handle refresh with real data
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    mutate(); // Refresh data from API
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 1000);
+    try {
+      // Refresh the data display
+      mutate();
+    } finally {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 1000);
+    }
   };
 
   // Manual save configuration (for modal)
@@ -745,18 +748,18 @@ const SystemIntegrationDashboard = () => {
               Connections
             </button>
             <button
+              onClick={() => window.location.href = '/settings'}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </button>
+            <button
               onClick={() => setShowColumnConfig(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
             >
               <Eye className="w-4 h-4" />
               Columns
-            </button>
-            <button
-              onClick={() => setShowAddMapping(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
-            >
-              <Link className="w-4 h-4" />
-              Link Fields
             </button>
             <button
               onClick={handleRefresh}
@@ -1030,112 +1033,6 @@ const SystemIntegrationDashboard = () => {
           </div>
         )}
       </div>
-
-      {/* Add Field Mapping Modal */}
-      {showAddMapping && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Add Field Mapping</h3>
-              <button
-                onClick={() => setShowAddMapping(false)}
-                className="text-gray-600 hover:text-gray-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <p className="text-sm text-gray-800">Create a relationship between fields in different systems.</p>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Source System</label>
-                  <div className="relative">
-                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
-                    <option>Zendesk</option>
-                    <option>Jira</option>
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Source Field</label>
-                  <div className="relative">
-                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
-                    <option>jira_id</option>
-                    <option>external_ref</option>
-                    <option>linked_ticket</option>
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-center py-2">
-                <ArrowRight className="w-6 h-6 text-gray-600" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Target System</label>
-                  <div className="relative">
-                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
-                    <option>Jira</option>
-                    <option>Zendesk</option>
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-900 mb-2">Target Field</label>
-                  <div className="relative">
-                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
-                    <option>id</option>
-                    <option>key</option>
-                    <option>ticket_number</option>
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-2">Mapping Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Support Escalation Tracking"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder-gray-500"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowAddMapping(false)}
-                className="px-4 py-2 text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  // Add the mapping logic here
-                  setShowAddMapping(false);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Create Mapping
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Column Configuration Modal */}
       {showColumnConfig && (

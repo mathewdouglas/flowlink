@@ -1,20 +1,12 @@
-import { Geist, Geist_Mono } from "next/font/google";
 import "../app/globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { AppProvider } from "../context/AppContext";
 
 export default function App({ Component, pageProps }) {
   return (
-    <div className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-      <Component {...pageProps} />
-    </div>
+    <AppProvider>
+      <div className="antialiased">
+        <Component {...pageProps} />
+      </div>
+    </AppProvider>
   );
 }
