@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, CheckCircle, Clock, X, Link, Edit3, Eye, EyeOff, ArrowRight, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { useFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
@@ -49,6 +49,25 @@ const SystemIntegrationDashboard = () => {
       setColumnOrder(defaultColumns);
     }
   }, [config]);
+
+  // Auto-save configuration when columns change
+  const autoSaveConfig = useCallback(async (columns, order) => {
+    try {
+      setConfigSaveStatus('saving');
+      await saveConfig({
+        visibleColumns: columns,
+        columnOrder: order,
+        filters: {} // Add filter state here when implemented
+      });
+      setConfigSaveStatus('saved');
+      // Clear the saved status after 2 seconds
+      setTimeout(() => setConfigSaveStatus(''), 2000);
+    } catch (error) {
+      console.error('Failed to auto-save configuration:', error);
+      setConfigSaveStatus('error');
+      setTimeout(() => setConfigSaveStatus(''), 3000);
+    }
+  }, [saveConfig]);
 
   // Field mapping and linking configuration (keep for future enhancement)
   const [fieldMappings, setFieldMappings] = useState([
@@ -132,6 +151,7 @@ const SystemIntegrationDashboard = () => {
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
+  const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
 
   // Filter and search records using real database data
   const filteredRecords = records.filter(record => {
@@ -200,7 +220,7 @@ const SystemIntegrationDashboard = () => {
     }, 1000);
   };
 
-  // Save configuration
+  // Manual save configuration (for modal)
   const handleSaveConfig = async () => {
     try {
       await saveConfig({
@@ -292,14 +312,25 @@ const SystemIntegrationDashboard = () => {
   };
 
   const toggleColumnVisibility = (columnKey) => {
+    let newVisibleColumns, newColumnOrder;
+    
     if (visibleColumns.includes(columnKey)) {
-      setVisibleColumns(visibleColumns.filter(key => key !== columnKey));
+      newVisibleColumns = visibleColumns.filter(key => key !== columnKey);
+      setVisibleColumns(newVisibleColumns);
     } else {
-      setVisibleColumns([...visibleColumns, columnKey]);
+      newVisibleColumns = [...visibleColumns, columnKey];
+      setVisibleColumns(newVisibleColumns);
+      
       if (!columnOrder.includes(columnKey)) {
-        setColumnOrder([...columnOrder, columnKey]);
+        newColumnOrder = [...columnOrder, columnKey];
+        setColumnOrder(newColumnOrder);
+      } else {
+        newColumnOrder = columnOrder;
       }
     }
+    
+    // Auto-save the configuration
+    autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder);
   };
 
   const moveColumn = (columnKey, direction) => {
@@ -312,6 +343,10 @@ const SystemIntegrationDashboard = () => {
       
       const newOrder = [...prev];
       [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
+      
+      // Auto-save the configuration
+      autoSaveConfig(visibleColumns, newOrder);
+      
       return newOrder;
     });
   };
@@ -347,6 +382,9 @@ const SystemIntegrationDashboard = () => {
       const [draggedItem] = newOrder.splice(dragIndex, 1);
       newOrder.splice(dropIndex, 0, draggedItem);
       
+      // Auto-save the configuration
+      autoSaveConfig(visibleColumns, newOrder);
+      
       return newOrder;
     });
     
@@ -369,16 +407,27 @@ const SystemIntegrationDashboard = () => {
 
   const addColumn = (columnKey) => {
     if (!visibleColumns.includes(columnKey)) {
-      setVisibleColumns([...visibleColumns, columnKey]);
+      const newVisibleColumns = [...visibleColumns, columnKey];
+      let newColumnOrder = columnOrder;
+      
+      setVisibleColumns(newVisibleColumns);
       if (!columnOrder.includes(columnKey)) {
-        setColumnOrder([...columnOrder, columnKey]);
+        newColumnOrder = [...columnOrder, columnKey];
+        setColumnOrder(newColumnOrder);
       }
+      
+      // Auto-save the configuration
+      autoSaveConfig(newVisibleColumns, newColumnOrder);
     }
     setShowAddColumn(false);
   };
 
   const removeColumn = (columnKey) => {
-    setVisibleColumns(visibleColumns.filter(key => key !== columnKey));
+    const newVisibleColumns = visibleColumns.filter(key => key !== columnKey);
+    setVisibleColumns(newVisibleColumns);
+    
+    // Auto-save the configuration
+    autoSaveConfig(newVisibleColumns, columnOrder);
   };
 
   const toggleSystemExpansion = (systemKey) => {
@@ -530,6 +579,34 @@ const SystemIntegrationDashboard = () => {
             <p className="text-gray-600 mt-1">Unified view with cross-system record linking</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Configuration save status indicator */}
+            {configSaveStatus && (
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                configSaveStatus === 'saving' ? 'bg-blue-100 text-blue-700' :
+                configSaveStatus === 'saved' ? 'bg-green-100 text-green-700' :
+                'bg-red-100 text-red-700'
+              }`}>
+                {configSaveStatus === 'saving' && (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                    Saving...
+                  </>
+                )}
+                {configSaveStatus === 'saved' && (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    Saved
+                  </>
+                )}
+                {configSaveStatus === 'error' && (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    Save failed
+                  </>
+                )}
+              </div>
+            )}
+            
             <button
               onClick={() => setShowColumnConfig(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
