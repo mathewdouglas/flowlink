@@ -11,6 +11,13 @@ import ZendeskSetupForm from './ZendeskSetupForm';
 const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
 const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
 
+// Utility function to truncate long text with ellipsis
+const truncateText = (text, maxLength = 50) => {
+  if (!text || typeof text !== 'string') return text;
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength).trim() + '...';
+};
+
 const SystemIntegrationDashboard = () => {
   // Helper function to navigate to Zendesk tickets
   const navigateToZendeskTickets = () => {
@@ -153,17 +160,29 @@ const SystemIntegrationDashboard = () => {
 
   // Column metadata with display names, types, and order
   const columnMetadata = {
+    // Zendesk columns based on actual API response fields
     'zendesk.id': { label: 'Ticket ID', color: 'green', group: 'zendesk', type: 'text' },
     'zendesk.subject': { label: 'Subject', color: 'green', group: 'zendesk', type: 'text' },
-    'zendesk.priority': { label: 'Priority', color: 'green', group: 'zendesk', type: 'badge' },
+    'zendesk.description': { label: 'Description', color: 'green', group: 'zendesk', type: 'text' },
     'zendesk.status': { label: 'Status', color: 'green', group: 'zendesk', type: 'badge' },
+    'zendesk.priority': { label: 'Priority', color: 'green', group: 'zendesk', type: 'badge' },
     'zendesk.assignee': { label: 'Assignee', color: 'green', group: 'zendesk', type: 'user' },
     'zendesk.requester': { label: 'Requester', color: 'green', group: 'zendesk', type: 'user' },
     'zendesk.created_at': { label: 'Created', color: 'green', group: 'zendesk', type: 'date' },
     'zendesk.updated_at': { label: 'Updated', color: 'green', group: 'zendesk', type: 'date' },
-    'zendesk.satisfaction_rating': { label: 'Satisfaction', color: 'green', group: 'zendesk', type: 'rating' },
-    'zendesk.channel': { label: 'Channel', color: 'green', group: 'zendesk', type: 'text' },
     'zendesk.tags': { label: 'Tags', color: 'green', group: 'zendesk', type: 'tags' },
+    
+    // Additional Zendesk fields available from customFields
+    'zendesk.channel': { label: 'Channel', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.satisfaction_rating': { label: 'Satisfaction', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.ticket_form_id': { label: 'Form ID', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.brand_id': { label: 'Brand ID', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.group_id': { label: 'Group ID', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.organization_id': { label: 'Org ID', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.problem_id': { label: 'Problem ID', color: 'green', group: 'zendesk', type: 'text' },
+    'zendesk.has_incidents': { label: 'Has Incidents', color: 'green', group: 'zendesk', type: 'badge' },
+    'zendesk.is_public': { label: 'Is Public', color: 'green', group: 'zendesk', type: 'badge' },
+    'zendesk.due_at': { label: 'Due Date', color: 'green', group: 'zendesk', type: 'date' },
 
     'jira.key': { label: 'Issue Key', color: 'blue', group: 'jira', type: 'text' },
     'jira.summary': { label: 'Summary', color: 'blue', group: 'jira', type: 'text' },
@@ -562,6 +581,9 @@ const SystemIntegrationDashboard = () => {
         case 'title':
           value = record.title;
           break;
+        case 'description':
+          value = record.description;
+          break;
         case 'status':
         case 'state':
           value = record.status;
@@ -597,6 +619,45 @@ const SystemIntegrationDashboard = () => {
             value = record.labels ? JSON.parse(record.labels) : [];
           } catch {
             value = [];
+          }
+          break;
+        case 'channel':
+          // Extract channel from customFields.via.channel
+          try {
+            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            value = customFields.via?.channel || customFields.channel || '-';
+          } catch {
+            value = '-';
+          }
+          break;
+        case 'satisfaction_rating':
+        case 'ticket_form_id':
+        case 'brand_id':
+        case 'group_id':
+        case 'organization_id':
+        case 'problem_id':
+        case 'has_incidents':
+        case 'is_public':
+          // Get from customFields
+          try {
+            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            value = customFields[field];
+            // Handle boolean values for display
+            if (typeof value === 'boolean') {
+              value = value ? 'Yes' : 'No';
+            }
+            value = value || '-';
+          } catch {
+            value = '-';
+          }
+          break;
+        case 'due_at':
+          // Get due date from customFields
+          try {
+            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            value = customFields.due_at;
+          } catch {
+            value = '-';
           }
           break;
         default:
@@ -649,7 +710,11 @@ const SystemIntegrationDashboard = () => {
       case 'date':
         return (
           <span className="text-sm text-gray-700 font-medium">
-            {value ? new Date(value).toLocaleDateString() : '-'}
+            {value ? new Date(value).toLocaleDateString('en-GB', { 
+              day: '2-digit', 
+              month: '2-digit', 
+              year: 'numeric' 
+            }) : '-'}
           </span>
         );
       case 'tags':
@@ -666,6 +731,22 @@ const SystemIntegrationDashboard = () => {
           </div>
         );
       default:
+        // Special handling for subject/title/description fields to prevent wide tables
+        if (field === 'subject' || field === 'summary' || field === 'title' || field === 'description') {
+          const truncatedValue = truncateText(value, 60);
+          const isLongText = value && value.length > 60;
+          
+          return (
+            <span 
+              className="text-sm text-gray-900 font-medium block break-words" 
+              title={isLongText ? value : undefined}
+              style={{ wordBreak: 'break-word', hyphens: 'auto' }}
+            >
+              {truncatedValue}
+            </span>
+          );
+        }
+        
         return <span className="text-sm text-gray-900 font-medium">{value}</span>;
     }
   };
@@ -742,17 +823,10 @@ const SystemIntegrationDashboard = () => {
             )}
             <button
               onClick={() => setShowConnectedSystems(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
             >
               <Link className="w-4 h-4" />
               Connections
-            </button>
-            <button
-              onClick={() => window.location.href = '/settings'}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
-            >
-              <Settings className="w-4 h-4" />
-              Settings
             </button>
             <button
               onClick={() => setShowColumnConfig(true)}
@@ -768,6 +842,13 @@ const SystemIntegrationDashboard = () => {
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               Refresh
+            </button>
+            <button
+              onClick={() => window.location.href = '/settings'}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
             </button>
           </div>
         </div>
@@ -975,8 +1056,17 @@ const SystemIntegrationDashboard = () => {
                         default: return 'text-gray-700';
                       }
                     };
+                    
+                    const getColumnWidth = (columnKey) => {
+                      const [, field] = columnKey.split('.');
+                      if (field === 'subject' || field === 'summary' || field === 'title' || field === 'description') {
+                        return 'max-w-xs'; // Max width for text-heavy columns
+                      }
+                      return '';
+                    };
+                    
                     return (
-                      <th key={columnKey} className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color)} uppercase tracking-wider`}>
+                      <th key={columnKey} className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color)} uppercase tracking-wider ${getColumnWidth(columnKey)}`}>
                         {meta.label}
                       </th>
                     );
@@ -1004,8 +1094,14 @@ const SystemIntegrationDashboard = () => {
                     </td>
                     {getVisibleColumnsInOrder().map(columnKey => {
                       const cellRecord = getCellRecordForColumn(record, columnKey);
+                      const [, field] = columnKey.split('.');
+                      const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
+                      const cellClass = isTextColumn 
+                        ? "px-4 py-4 align-top max-w-xs" 
+                        : "px-4 py-4 whitespace-nowrap align-top";
+                      
                       return (
-                        <td key={columnKey} className="px-4 py-4 whitespace-nowrap align-top">
+                        <td key={columnKey} className={cellClass}>
                           {renderTableCell(cellRecord, columnKey)}
                         </td>
                       );
