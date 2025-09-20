@@ -8,7 +8,7 @@ export function useFlowRecords(organizationId, system = 'all', page = 1) {
     organizationId ? `/api/records?organizationId=${organizationId}&system=${system}&page=${page}` : null,
     fetcher,
     {
-      refreshInterval: 30000, // Refresh every 30 seconds
+      refreshInterval: 60000, // Refresh every 1 minute
       revalidateOnFocus: false
     }
   );

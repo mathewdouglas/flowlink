@@ -1,6 +1,6 @@
-const prisma = require('../../../lib/prisma');
+import prisma from '../../../lib/prisma';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   const { method } = req;
 
   switch (method) {

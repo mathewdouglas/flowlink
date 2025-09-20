@@ -5,12 +5,50 @@ import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, C
 import Image from 'next/image';
 import { useFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
+import ZendeskSetupForm from './ZendeskSetupForm';
 
 // This would come from your auth system - using the actual seeded org ID
 const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
 const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
 
 const SystemIntegrationDashboard = () => {
+  // Helper function to navigate to Zendesk tickets
+  const navigateToZendeskTickets = () => {
+    window.location.href = '/zendesk-tickets';
+  };
+  
+// Zendesk setup modal state
+  const [showZendeskSetup, setShowZendeskSetup] = useState(false);
+  const [zendeskSubdomain, setZendeskSubdomain] = useState('');
+  const [zendeskEmail, setZendeskEmail] = useState('');
+  const [zendeskApiKey, setZendeskApiKey] = useState('');
+  const [zendeskSaveStatus, setZendeskSaveStatus] = useState('idle'); // idle | saving | success | error
+
+  // Save Zendesk credentials via API
+  const handleZendeskSave = async (e) => {
+    e.preventDefault();
+    setZendeskSaveStatus('saving');
+    try {
+      const res = await fetch('/api/zendesk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subdomain: zendeskSubdomain, email: zendeskEmail, apiKey: zendeskApiKey })
+      });
+      if (res.ok) {
+        setZendeskSaveStatus('success');
+        setTimeout(() => setShowZendeskSetup(false), 1200);
+        // Re-check connection after saving
+        setTimeout(() => {
+          checkZendeskConnection();
+        }, 1300);
+      } else {
+        setZendeskSaveStatus('error');
+      }
+    } catch {
+      setZendeskSaveStatus('error');
+    }
+  };
+
   // Database hooks for real data
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedSystem, setSelectedSystem] = useState('all');
@@ -22,13 +60,52 @@ const SystemIntegrationDashboard = () => {
   const { mappings = [], createMapping, updateMapping, deleteMapping } = useFieldMappings(CURRENT_ORG_ID) || {};
 
   const [connectedSystems, setConnectedSystems] = useState([
-    { id: 1, name: 'Zendesk', type: 'support', status: 'connected', color: 'bg-green-500' },
-    { id: 2, name: 'Jira', type: 'project', status: 'connected', color: 'bg-blue-500' },
-    { id: 3, name: 'Slack', type: 'communication', status: 'error', color: 'bg-red-500' },
-    { id: 4, name: 'GitHub', type: 'development', status: 'connected', color: 'bg-gray-800' },
-    { id: 5, name: 'Salesforce', type: 'crm', status: 'pending', color: 'bg-blue-600' },
-    { id: 6, name: 'Teams', type: 'communication', status: 'connected', color: 'bg-purple-600' }
+    { id: 1, name: 'Zendesk', type: 'support', status: 'not_connected', color: 'bg-gray-400' },
+    { id: 2, name: 'Jira', type: 'project', status: 'not_connected', color: 'bg-gray-400' },
+    { id: 3, name: 'Slack', type: 'communication', status: 'not_connected', color: 'bg-gray-400' },
+    { id: 4, name: 'GitHub', type: 'development', status: 'not_connected', color: 'bg-gray-400' },
+    { id: 5, name: 'Salesforce', type: 'crm', status: 'not_connected', color: 'bg-gray-400' },
+    { id: 6, name: 'Teams', type: 'communication', status: 'not_connected', color: 'bg-gray-400' }
   ]);
+
+  // Helper to update a system's status and color
+  const updateSystemStatus = (systemName, status) => {
+    setConnectedSystems(prev => prev.map(sys => {
+      if (sys.name.toLowerCase() === systemName.toLowerCase()) {
+        let color = 'bg-gray-400';
+        if (status === 'connected') color = 'bg-green-500';
+        else if (status === 'error') color = 'bg-red-500';
+        else if (status === 'pending') color = 'bg-yellow-400';
+        return { ...sys, status, color };
+      }
+      return sys;
+    }));
+  };
+
+  // Check Zendesk connection status
+  const checkZendeskConnection = useCallback(async () => {
+    updateSystemStatus('Zendesk', 'pending');
+    try {
+      const res = await fetch('/api/zendesk/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          updateSystemStatus('Zendesk', 'connected');
+        } else {
+          updateSystemStatus('Zendesk', data.status === 'not_configured' ? 'not connected' : 'error');
+        }
+      } else {
+        updateSystemStatus('Zendesk', 'error');
+      }
+    } catch {
+      updateSystemStatus('Zendesk', 'error');
+    }
+  }, []);
+
+  // Check connection status on mount
+  useEffect(() => {
+    checkZendeskConnection();
+  }, [checkZendeskConnection]);
 
   // Local state for managing column configuration - use arrays instead of objects for consistency
   const [visibleColumns, setVisibleColumns] = useState([]);
@@ -136,8 +213,8 @@ const SystemIntegrationDashboard = () => {
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [expandedSystems, setExpandedSystems] = useState({
-    zendesk: true,
-    jira: true,
+    zendesk: false,
+    jira: false,
     slack: false,
     github: false,
     salesforce: false,
@@ -152,6 +229,7 @@ const SystemIntegrationDashboard = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
+  const [showConnectedSystems, setShowConnectedSystems] = useState(false);
 
   // Filter and search records using real database data
   const filteredRecords = records.filter(record => {
@@ -257,14 +335,38 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Open': return 'text-blue-800 bg-blue-100';
-      case 'In Progress': return 'text-orange-800 bg-orange-100';
-      case 'Review': return 'text-purple-800 bg-purple-100';
-      case 'Resolved': case 'Done': return 'text-green-800 bg-green-100';
-      case 'Pending': return 'text-gray-800 bg-gray-100';
-      default: return 'text-gray-800 bg-gray-100';
+  const getStatusColor = (status, system) => {
+    if (!status) return 'text-gray-800 bg-gray-100';
+    const normalizedStatus = String(status).toLowerCase();
+    if (system === 'zendesk') {
+      switch (normalizedStatus) {
+        case 'open': return 'text-red-800 bg-red-100'; // Red
+        case 'pending': return 'text-blue-800 bg-blue-100'; // Blue
+        case 'on hold': return 'text-black bg-gray-200'; // Black
+        case 'solved': return 'text-gray-800 bg-gray-200'; // Grey
+        case 'closed': return 'text-gray-800 bg-gray-200'; // Grey
+        default: return 'text-gray-800 bg-gray-100';
+      }
+    } else if (system === 'jira') {
+      switch (normalizedStatus) {
+        case 'open': return 'text-gray-800 bg-gray-200'; // Grey
+        case 'under review': return 'text-blue-800 bg-blue-100'; // Blue
+        case 'in progress': return 'text-blue-800 bg-blue-100'; // Blue
+        case 'solution provided': return 'text-blue-800 bg-blue-100'; // Blue
+        case 'done': return 'text-green-800 bg-green-100'; // Green
+        default: return 'text-gray-800 bg-gray-100';
+      }
+    } else {
+      // Fallback for other systems
+      switch (normalizedStatus) {
+        case 'open': return 'text-blue-800 bg-blue-100';
+        case 'in progress': return 'text-orange-800 bg-orange-100';
+        case 'review': return 'text-purple-800 bg-purple-100';
+        case 'resolved':
+        case 'done': return 'text-green-800 bg-green-100';
+        case 'pending': return 'text-gray-800 bg-gray-100';
+        default: return 'text-gray-800 bg-gray-100';
+      }
     }
   };
 
@@ -514,12 +616,22 @@ const SystemIntegrationDashboard = () => {
     const color = getSystemColor(record.sourceSystem);
     
     switch (meta?.type) {
-      case 'badge':
+      case 'badge': {
+        // Special color logic for Zendesk and Jira status columns
+        if (field === 'status' && (system === 'zendesk' || system === 'jira')) {
+          return (
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-gray-200 ${getStatusColor(value, system)}`}>
+              {value}
+            </span>
+          );
+        }
+        // Default badge color logic
         return (
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-${color}-100 text-${color}-800 border border-${color}-200`}>
             {value}
           </span>
         );
+      }
       case 'user':
         return (
           <div className="flex items-center space-x-2">
@@ -555,18 +667,37 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
-  const addFieldMapping = async (sourceSystem, sourceField, targetSystem, targetField, mappingName) => {
-    try {
-      await createMapping({
-        sourceSystem,
-        sourceField,
-        targetSystem,
-        targetField,
-        mappingName
+  // Helper: merge a record and its linked records into a single row object
+  const getMergedRow = (record) => {
+    // Start with the main record
+    const merged = { ...record };
+    // For each linked record, copy any fields that are missing or system-specific
+    (record.linkedRecords || []).forEach(linked => {
+      // For each column, if the merged row doesn't have a value for that system, use the linked record's value
+      getVisibleColumnsInOrder().forEach(columnKey => {
+        const [system] = columnKey.split('.');
+        // If merged row's sourceSystem doesn't match, and linked does, use linked's value
+        if (linked.sourceSystem === system && merged.sourceSystem !== system) {
+          merged[columnKey] = linked[columnKey] !== undefined ? linked[columnKey] : linked[columnKey.split('.')[1]];
+          // Also copy generic fields if present
+          if (linked[columnKey.split('.')[1]] !== undefined) {
+            merged[columnKey.split('.')[1]] = linked[columnKey.split('.')[1]];
+          }
+        }
       });
-    } catch (error) {
-      console.error('Failed to create field mapping:', error);
+    });
+    return merged;
+  };
+
+  // Helper: for a given column, find the record (main or linked) whose sourceSystem matches the column's system
+  const getCellRecordForColumn = (record, columnKey) => {
+    const [system] = columnKey.split('.');
+    if (record.sourceSystem === system) return record;
+    if (record.linkedRecords && record.linkedRecords.length > 0) {
+      const match = record.linkedRecords.find(lr => lr.sourceSystem === system);
+      if (match) return match;
     }
+    return record; // fallback
   };
 
   return (
@@ -575,7 +706,7 @@ const SystemIntegrationDashboard = () => {
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">System Integration Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900">FlowLink Dashboard</h1>
             <p className="text-gray-600 mt-1">Unified view with cross-system record linking</p>
           </div>
           <div className="flex items-center gap-3">
@@ -606,7 +737,13 @@ const SystemIntegrationDashboard = () => {
                 )}
               </div>
             )}
-            
+            <button
+              onClick={() => setShowConnectedSystems(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <Link className="w-4 h-4" />
+              Connections
+            </button>
             <button
               onClick={() => setShowColumnConfig(true)}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
@@ -616,7 +753,7 @@ const SystemIntegrationDashboard = () => {
             </button>
             <button
               onClick={() => setShowAddMapping(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
             >
               <Link className="w-4 h-4" />
               Link Fields
@@ -634,63 +771,92 @@ const SystemIntegrationDashboard = () => {
       </header>
 
       <div className="px-6 py-6">
-        {/* Connected Systems Overview */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Connected Systems</h2>
-            <button
-              onClick={() => setIsSystemsExpanded(!isSystemsExpanded)}
-              className="flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900 transition-colors"
-            >
-              {isSystemsExpanded ? (
-                <>
-                  <EyeOff className="w-4 h-4" />
-                  <span className="text-sm">Collapse</span>
-                </>
-              ) : (
-                <>
-                  <Eye className="w-4 h-4" />
-                  <span className="text-sm">Expand</span>
-                </>
-              )}
-            </button>
-          </div>
-          
-          {isSystemsExpanded ? (
-            // Expanded view - original cards
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {connectedSystems.map((system) => (
-                <div key={system.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className={`w-3 h-3 rounded-full ${system.color}`}></div>
-                    {getStatusIcon(system.status)}
-                  </div>
-                  <h3 className="font-medium text-gray-900">{system.name}</h3>
-                  <p className="text-sm text-gray-600 capitalize">{system.type}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            // Collapsed view - compact icons
-            <div className="flex items-center gap-3 bg-white rounded-lg p-3 border border-gray-200">
-              {connectedSystems.map((system) => (
-                <div key={system.id} className="relative group">
-                  <div className="flex items-center gap-2">
-                    {getCompanyIcon(system.name)}
-                    <div className="absolute -top-1 -right-1">
-                      {getStatusIcon(system.status)}
+        {/* Connected Systems Modal */}
+        {showConnectedSystems && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-8 w-full max-w-5xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
+              <button
+                onClick={() => setShowConnectedSystems(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+                aria-label="Close Connected Systems Modal"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              <h2 className="text-2xl font-semibold text-gray-900 mb-8 text-center">Connected Systems</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
+                {connectedSystems.map((system) => (
+                  <div
+                    key={system.id}
+                    className="flex flex-col items-center justify-between bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-lg transition-shadow min-h-48 p-5 relative group"
+                  >
+                    <div className="flex flex-col items-center w-full flex-1 justify-center">
+                      {getCompanyIcon(system.name)}
+                      <h3 className="font-semibold text-gray-900 text-base mt-3 mb-1 text-center w-full truncate">{system.name}</h3>
+                      <p className="text-xs text-gray-500 capitalize text-center mb-2 w-full truncate">{system.type}</p>
+                    </div>
+                    
+                    {/* Status and Actions */}
+                    <div className="flex flex-col items-center w-full mt-auto pt-2 space-y-2">
+                      <div className="flex items-center justify-between w-full">
+                        <span className={`inline-block w-3 h-3 rounded-full ${system.color} border border-white shadow`}></span>
+                        <span className="ml-auto">{getStatusIcon(system.status)}</span>
+                      </div>
+                      
+                      {/* Action Buttons */}
+                      <div className="flex flex-col w-full space-y-1">
+                        {system.name.toLowerCase() === 'zendesk' && (
+                          <>
+                            {system.status === 'connected' ? (
+                              <button
+                                onClick={navigateToZendeskTickets}
+                                className="w-full px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
+                              >
+                                View Tickets
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setShowZendeskSetup(true)}
+                                className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                              >
+                                Connect
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {system.name.toLowerCase() !== 'zendesk' && (
+                          <button
+                            disabled
+                            className="w-full px-3 py-1.5 bg-gray-300 text-gray-500 text-xs rounded cursor-not-allowed"
+                          >
+                            Coming Soon
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                    {system.name} - {system.status}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+      {/* Zendesk Setup Modal */}
+      {showZendeskSetup && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-8 w-full max-w-md shadow-2xl relative">
+            <button
+              onClick={() => setShowZendeskSetup(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+              aria-label="Close Zendesk Setup Modal"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Connect Zendesk</h2>
+            <ZendeskSetupForm />
+          </div>
         </div>
+      )}
 
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Field Mappings Overview */}
         <div className="mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Active Field Mappings</h3>
@@ -699,22 +865,37 @@ const SystemIntegrationDashboard = () => {
               <p className="text-gray-600 text-center py-4">No field mappings configured. Click &quot;Link Fields&quot; to create connections.</p>
             ) : (
               <div className="space-y-3">
-                {(mappings || []).filter(m => m.isActive).map((mapping) => (
-                  <div key={mapping.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {mapping.sourceSystem}
-                      </span>
-                      <span className="text-sm text-gray-600">{mapping.sourceField}</span>
-                      <ArrowRight className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">{mapping.targetField}</span>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {mapping.targetSystem}
-                      </span>
+                {(mappings || []).filter(m => m.isActive).map((mapping) => {
+                  // Color map for system badges
+                  const systemColorMap = {
+                    zendesk: 'green',
+                    jira: 'blue',
+                    slack: 'red',
+                    github: 'gray',
+                    salesforce: 'blue',
+                    teams: 'purple'
+                  };
+                  const getBadgeClasses = (system) => {
+                    const color = systemColorMap[system?.toLowerCase()] || 'gray';
+                    return `inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${color}-100 text-${color}-800`;
+                  };
+                  return (
+                    <div key={mapping.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className={getBadgeClasses(mapping.sourceSystem)}>
+                          {mapping.sourceSystem}
+                        </span>
+                        <span className="text-sm text-gray-600">{mapping.sourceField}</span>
+                        <ArrowRight className="w-4 h-4 text-gray-500" />
+                        <span className="text-sm text-gray-600">{mapping.targetField}</span>
+                        <span className={getBadgeClasses(mapping.targetSystem)}>
+                          {mapping.targetSystem}
+                        </span>
+                      </div>
+                      <span className="text-sm font-medium text-gray-700">{mapping.mappingName}</span>
                     </div>
-                    <span className="text-sm font-medium text-gray-700">{mapping.mappingName}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -736,20 +917,26 @@ const SystemIntegrationDashboard = () => {
               </div>
             </div>
             <div className="flex gap-4">
-              <select
-                value={filterSystem}
-                onChange={(e) => setFilterSystem(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-              >
+              <div className="relative">
+                <select
+                  value={filterSystem}
+                  onChange={(e) => setFilterSystem(e.target.value)}
+                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                >
                 <option value="all">All Records</option>
                 <option value="linked">Linked Records</option>
                 <option value="unlinked">Unlinked Records</option>
-              </select>
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-              >
+                </select>
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                  ▼
+                </span>
+              </div>
+              <div className="relative">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                >
                 <option value="all">All Status</option>
                 <option value="Open">Open</option>
                 <option value="In Progress">In Progress</option>
@@ -757,7 +944,11 @@ const SystemIntegrationDashboard = () => {
                 <option value="Resolved">Resolved</option>
                 <option value="Done">Done</option>
                 <option value="Pending">Pending</option>
-              </select>
+                </select>
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                  ▼
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -793,7 +984,7 @@ const SystemIntegrationDashboard = () => {
               <tbody className="divide-y divide-gray-200">
                 {linkedRecords.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap">
+                    <td className="px-4 py-4 whitespace-nowrap align-top">
                       {record.hasLinks ? (
                         <div className="flex items-center gap-2">
                           <Link className="w-4 h-4 text-green-500" />
@@ -808,12 +999,15 @@ const SystemIntegrationDashboard = () => {
                         </div>
                       )}
                     </td>
-                    {getVisibleColumnsInOrder().map(columnKey => (
-                      <td key={columnKey} className="px-4 py-4 whitespace-nowrap">
-                        {renderTableCell(record, columnKey)}
-                      </td>
-                    ))}
-                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium">
+                    {getVisibleColumnsInOrder().map(columnKey => {
+                      const cellRecord = getCellRecordForColumn(record, columnKey);
+                      return (
+                        <td key={columnKey} className="px-4 py-4 whitespace-nowrap align-top">
+                          {renderTableCell(cellRecord, columnKey)}
+                        </td>
+                      );
+                    })}
+                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium align-top">
                       <div className="flex items-center gap-2">
                         <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200" title="Open in source system">
                           <ExternalLink className="w-4 h-4" />
@@ -856,18 +1050,28 @@ const SystemIntegrationDashboard = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Source System</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <div className="relative">
+                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
                     <option>Zendesk</option>
                     <option>Jira</option>
-                  </select>
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Source Field</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <div className="relative">
+                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
                     <option>jira_id</option>
                     <option>external_ref</option>
                     <option>linked_ticket</option>
-                  </select>
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -878,18 +1082,28 @@ const SystemIntegrationDashboard = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Target System</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <div className="relative">
+                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
                     <option>Jira</option>
                     <option>Zendesk</option>
-                  </select>
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Target Field</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <div className="relative">
+                    <select className="appearance-none w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 pr-8 bg-white">
                     <option>id</option>
                     <option>key</option>
                     <option>ticket_number</option>
-                  </select>
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
               </div>
 

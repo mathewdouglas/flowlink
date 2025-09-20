@@ -1,7 +1,7 @@
-const { prisma } = require('../../../../lib/prisma');
-const { IntegrationService } = require('../../../../lib/integrations');
+import { prisma } from '../../../../lib/prisma';
+import { IntegrationService } from '../../../../lib/integrations';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }

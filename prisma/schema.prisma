@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,181 +8,182 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  userOrganizations UserOrganization[]
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String
+  avatarUrl         String?            @map("avatar_url")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
   dashboardConfigs  DashboardConfig[]
+  userOrganizations UserOrganization[]
 
   @@map("users")
 }
 
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  userOrganizations UserOrganization[]
-  integrations      Integration[]
-  flowRecords       FlowRecord[]
-  dashboardConfigs  DashboardConfig[]
-  recordLinks       RecordLink[]
-  fieldMappings     FieldMapping[]
+  id                     String                   @id @default(cuid())
+  name                   String
+  slug                   String                   @unique
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  dashboardConfigs       DashboardConfig[]
+  fieldMappings          FieldMapping[]
+  flowRecords            FlowRecord[]
+  integrationCredentials IntegrationCredentials[]
+  integrations           Integration[]
+  recordLinks            RecordLink[]
+  userOrganizations      UserOrganization[]
 
   @@map("organizations")
 }
 
 model UserOrganization {
-  id             String   @id @default(cuid())
-  userId         String   @map("user_id")
-  organizationId String   @map("organization_id")
-  role           String   @default("member")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  organizationId String       @map("organization_id")
+  role           String       @default("member")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
   @@map("user_organizations")
 }
 
 model Integration {
-  id             String    @id @default(cuid())
-  organizationId String    @map("organization_id")
-  systemType     String    @map("system_type") // zendesk, jira, slack, github, salesforce, teams
-  systemName     String    @map("system_name")
-  config         String    // JSON string for SQLite compatibility
-  isActive       Boolean   @default(true) @map("is_active")
-  lastSyncAt     DateTime? @map("last_sync_at")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  flowRecords  FlowRecord[]
-  syncLogs     SyncLog[]
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  systemType     String       @map("system_type")
+  systemName     String       @map("system_name")
+  config         String
+  isActive       Boolean      @default(true) @map("is_active")
+  lastSyncAt     DateTime?    @map("last_sync_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  flowRecords    FlowRecord[]
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  syncLogs       SyncLog[]
 
   @@map("integrations")
 }
 
 model FlowRecord {
-  id                  String    @id @default(cuid())
-  organizationId      String    @map("organization_id")
-  sourceIntegrationId String    @map("source_integration_id")
-  sourceSystem        String    @map("source_system")
-  sourceId            String    @map("source_id")
-  recordType          String    @map("record_type") // ticket, issue, message, pull_request, etc.
+  id                  String       @id @default(cuid())
+  organizationId      String       @map("organization_id")
+  sourceIntegrationId String       @map("source_integration_id")
+  sourceSystem        String       @map("source_system")
+  sourceId            String       @map("source_id")
+  recordType          String       @map("record_type")
   title               String?
   description         String?
   status              String?
   priority            String?
-  assigneeEmail       String?   @map("assignee_email")
-  assigneeName        String?   @map("assignee_name")
-  reporterEmail       String?   @map("reporter_email")
-  reporterName        String?   @map("reporter_name")
-  labels              String?   // JSON string for SQLite compatibility
-  customFields        String?   @map("custom_fields") // JSON string for SQLite
-  sourceUrl           String?   @map("source_url")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
-  sourceCreatedAt     DateTime? @map("source_created_at")
-  sourceUpdatedAt     DateTime? @map("source_updated_at")
-
-  // Relations
-  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceIntegration Integration  @relation(fields: [sourceIntegrationId], references: [id], onDelete: Cascade)
-  
-  // Cross-system linking relations
-  sourceLinks       RecordLink[] @relation("SourceRecord")
-  targetLinks       RecordLink[] @relation("TargetRecord")
+  assigneeEmail       String?      @map("assignee_email")
+  assigneeName        String?      @map("assignee_name")
+  reporterEmail       String?      @map("reporter_email")
+  reporterName        String?      @map("reporter_name")
+  labels              String?
+  customFields        String?      @map("custom_fields")
+  sourceUrl           String?      @map("source_url")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  sourceCreatedAt     DateTime?    @map("source_created_at")
+  sourceUpdatedAt     DateTime?    @map("source_updated_at")
+  sourceIntegration   Integration  @relation(fields: [sourceIntegrationId], references: [id], onDelete: Cascade)
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  targetLinks         RecordLink[] @relation("TargetRecord")
+  sourceLinks         RecordLink[] @relation("SourceRecord")
 
   @@unique([sourceIntegrationId, sourceId])
   @@map("flow_records")
 }
 
 model RecordLink {
-  id               String   @id @default(cuid())
-  organizationId   String   @map("organization_id")
-  sourceRecordId   String   @map("source_record_id")
-  targetRecordId   String   @map("target_record_id")
-  linkType         String   @map("link_type") // escalation, related, duplicate, etc.
-  linkName         String?  @map("link_name")
-  metadata         String?  // JSON string for additional link metadata
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceRecord   FlowRecord   @relation("SourceRecord", fields: [sourceRecordId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  sourceRecordId String       @map("source_record_id")
+  targetRecordId String       @map("target_record_id")
+  linkType       String       @map("link_type")
+  linkName       String?      @map("link_name")
+  metadata       String?
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
   targetRecord   FlowRecord   @relation("TargetRecord", fields: [targetRecordId], references: [id], onDelete: Cascade)
+  sourceRecord   FlowRecord   @relation("SourceRecord", fields: [sourceRecordId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([sourceRecordId, targetRecordId])
   @@map("record_links")
 }
 
 model FieldMapping {
-  id               String   @id @default(cuid())
-  organizationId   String   @map("organization_id")
-  sourceSystem     String   @map("source_system")
-  sourceField      String   @map("source_field")
-  targetSystem     String   @map("target_system")
-  targetField      String   @map("target_field")
-  mappingName      String   @map("mapping_name")
-  isActive         Boolean  @default(true) @map("is_active")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  sourceSystem   String       @map("source_system")
+  sourceField    String       @map("source_field")
+  targetSystem   String       @map("target_system")
+  targetField    String       @map("target_field")
+  mappingName    String       @map("mapping_name")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, sourceSystem, sourceField, targetSystem, targetField])
   @@map("field_mappings")
 }
 
-model DashboardConfig {
-  id               String   @id @default(cuid())
-  userId           String   @map("user_id")
-  organizationId   String   @map("organization_id")
-  configName       String   @default("default") @map("config_name")
-  visibleColumns   String   @map("visible_columns") // JSON string for SQLite
-  columnOrder      String   @map("column_order") // JSON string for SQLite
-  filters          String?  // JSON string for SQLite
-  isDefault        Boolean  @default(false) @map("is_default")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+model IntegrationCredentials {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  systemType     String       @map("system_type")
+  subdomain      String?
+  email          String?
+  apiKey         String?      @map("api_key")
+  apiSecret      String?      @map("api_secret")
+  accessToken    String?      @map("access_token")
+  refreshToken   String?      @map("refresh_token")
+  customConfig   String?      @map("custom_config")
+  isActive       Boolean      @default(true) @map("is_active")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  // Relations
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  @@unique([organizationId, systemType])
+  @@map("integration_credentials")
+}
+
+model DashboardConfig {
+  id             String       @id @default(cuid())
+  userId         String       @map("user_id")
+  organizationId String       @map("organization_id")
+  configName     String       @default("default") @map("config_name")
+  visibleColumns String       @map("visible_columns")
+  columnOrder    String       @map("column_order")
+  filters        String?
+  isDefault      Boolean      @default(false) @map("is_default")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId, configName])
   @@map("dashboard_configs")
 }
 
 model SyncLog {
-  id               String    @id @default(cuid())
-  integrationId    String    @map("integration_id")
-  syncType         String?   @map("sync_type") // full, incremental
-  status           String?   // running, completed, failed
-  recordsProcessed Int       @default(0) @map("records_processed")
-  recordsUpdated   Int       @default(0) @map("records_updated")
-  recordsCreated   Int       @default(0) @map("records_created")
-  errorMessage     String?   @map("error_message")
-  startedAt        DateTime  @default(now()) @map("started_at")
-  completedAt      DateTime? @map("completed_at")
-
-  // Relations
-  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  id               String      @id @default(cuid())
+  integrationId    String      @map("integration_id")
+  syncType         String?     @map("sync_type")
+  status           String?
+  recordsProcessed Int         @default(0) @map("records_processed")
+  recordsUpdated   Int         @default(0) @map("records_updated")
+  recordsCreated   Int         @default(0) @map("records_created")
+  errorMessage     String?     @map("error_message")
+  startedAt        DateTime    @default(now()) @map("started_at")
+  completedAt      DateTime?   @map("completed_at")
+  integration      Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@map("sync_logs")
 }

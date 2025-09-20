@@ -1,6 +1,6 @@
-const prisma = require('../../../lib/prisma');
+import prisma from '../../../lib/prisma';
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const { userId, organizationId } = req.query;
@@ -47,9 +47,10 @@ module.exports = async function handler(req, res) {
       res.status(200).json(parsedConfig);
     } catch (error) {
       console.error('Error fetching dashboard config:', error);
-    res.status(500).json({ message: 'Internal server error' });
-  }
-};  if (req.method === 'POST') {
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  } 
+  if (req.method === 'POST') {
     try {
       const { userId, organizationId, visibleColumns, columnOrder, filters } = req.body;
 
