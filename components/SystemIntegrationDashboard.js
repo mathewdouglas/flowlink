@@ -9,11 +9,7 @@ import { useCustomColumns } from '../hooks/useCustomColumns';
 import ZendeskSetupForm from './ZendeskSetupForm';
 import CustomColumnForm from './CustomColumnForm';
 
-// This would come from your auth system - using the actual seeded org ID
-const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
-const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
-
-// Utility function to truncate long text with ellipsis
+  // Utility function to truncate long text with ellipsis
 const truncateText = (text, maxLength = 50) => {
   if (!text || typeof text !== 'string') return text;
   if (text.length <= maxLength) return text;
@@ -21,12 +17,16 @@ const truncateText = (text, maxLength = 50) => {
 };
 
 const SystemIntegrationDashboard = () => {
+  // This would come from your auth system - using the actual seeded org ID
+  const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
+  const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
+
   // Helper function to navigate to Zendesk tickets
   const navigateToZendeskTickets = () => {
     window.location.href = '/zendesk-tickets';
   };
   
-// Zendesk setup modal state
+  // Zendesk setup modal state
   const [showZendeskSetup, setShowZendeskSetup] = useState(false);
   const [zendeskSubdomain, setZendeskSubdomain] = useState('');
   const [zendeskEmail, setZendeskEmail] = useState('');
@@ -127,30 +127,34 @@ const SystemIntegrationDashboard = () => {
   // Local state for managing column configuration - use arrays instead of objects for consistency
   const [visibleColumns, setVisibleColumns] = useState([]);
   const [columnOrder, setColumnOrder] = useState([]);
+  const [columnDisplayNames, setColumnDisplayNames] = useState({});
 
   // Update local state when config loads
   useEffect(() => {
     if (config) {
       setVisibleColumns(config.visibleColumns || []);
       setColumnOrder(config.columnOrder || []);
+      setColumnDisplayNames(config.columnDisplayNames || {});
     } else {
       // Set default visible columns if no config exists
       const defaultColumns = [
         'zendesk.id', 'zendesk.subject', 'zendesk.status', 'zendesk.priority',
-        'jira.key', 'jira.summary', 'jira.status', 'jira.priority'
+        'zendesk.assignee', 'zendesk.created_at'
       ];
       setVisibleColumns(defaultColumns);
       setColumnOrder(defaultColumns);
+      setColumnDisplayNames({});
     }
   }, [config]);
 
   // Auto-save configuration when columns change
-  const autoSaveConfig = useCallback(async (columns, order) => {
+  const autoSaveConfig = useCallback(async (columns, order, displayNames) => {
     try {
       setConfigSaveStatus('saving');
       await saveConfig({
         visibleColumns: columns,
         columnOrder: order,
+        columnDisplayNames: displayNames,
         filters: {} // Add filter state here when implemented
       });
       setConfigSaveStatus('saved');
@@ -239,13 +243,20 @@ const SystemIntegrationDashboard = () => {
 
   // Get current column metadata (including custom columns)
   const currentColumnMetadata = useMemo(() => {
-    const systemColumns = { ...columnMetadata };
+    // Apply display names to system columns
+    const systemColumns = {};
+    Object.keys(columnMetadata).forEach(key => {
+      systemColumns[key] = {
+        ...columnMetadata[key],
+        label: columnDisplayNames[key] || columnMetadata[key].label
+      };
+    });
 
     // Add custom columns
     const customColumnMetadata = {};
     customColumns.forEach(column => {
       customColumnMetadata[`custom.${column.name}`] = {
-        label: column.label,
+        label: columnDisplayNames[`custom.${column.name}`] || column.label,
         color: 'indigo', // Use indigo for custom columns
         group: 'custom',
         type: column.type,
@@ -278,7 +289,7 @@ const SystemIntegrationDashboard = () => {
     // Add Zendesk custom fields to metadata
     zendeskCustomFieldIds.forEach(fieldId => {
       zendeskCustomFieldMetadata[`zendesk.custom_${fieldId}`] = {
-        label: `Custom Field ${fieldId}`,
+        label: columnDisplayNames[`zendesk.custom_${fieldId}`] || `Custom Field ${fieldId}`,
         color: 'green',
         group: 'zendesk',
         type: 'text',
@@ -288,7 +299,7 @@ const SystemIntegrationDashboard = () => {
     });
 
     return { ...systemColumns, ...customColumnMetadata, ...zendeskCustomFieldMetadata };
-  }, [records, customColumns, columnMetadata]);
+  }, [records, customColumns, columnMetadata, columnDisplayNames]);
 
   // Drag and drop state
   const [draggedColumn, setDraggedColumn] = useState(null);
@@ -311,10 +322,82 @@ const SystemIntegrationDashboard = () => {
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [showCustomColumnForm, setShowCustomColumnForm] = useState(false);
   const [editingColumn, setEditingColumn] = useState(null);
+  const [editingDisplayName, setEditingDisplayName] = useState(null); // { columnKey, currentName }
+  const [displayNameInput, setDisplayNameInput] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
   const [showConnectedSystems, setShowConnectedSystems] = useState(false);
+
+  // Integration status state
+  const [integrationStatuses, setIntegrationStatuses] = useState({
+    zendesk: { status: 'checking', connected: false },
+    jira: { status: 'checking', connected: false },
+    slack: { status: 'checking', connected: false },
+    github: { status: 'checking', connected: false },
+    salesforce: { status: 'checking', connected: false },
+    teams: { status: 'checking', connected: false }
+  });
+
+  // Check integration status when connections modal opens
+  useEffect(() => {
+    if (showConnectedSystems) {
+      checkAllIntegrationStatuses();
+    }
+  }, [showConnectedSystems]);
+
+  const checkAllIntegrationStatuses = async () => {
+    // Only check status for systems that have status APIs implemented
+    const systemsWithStatusAPIs = ['zendesk', 'jira'];
+    
+    // Set default status for all systems
+    setIntegrationStatuses({
+      zendesk: { status: 'checking', connected: false },
+      jira: { status: 'checking', connected: false },
+      slack: { status: 'not_configured', connected: false, message: 'Not implemented yet' },
+      github: { status: 'not_configured', connected: false, message: 'Not implemented yet' },
+      salesforce: { status: 'not_configured', connected: false, message: 'Not implemented yet' },
+      teams: { status: 'not_configured', connected: false, message: 'Not implemented yet' }
+    });
+    
+    // Check status for systems with APIs
+    for (const system of systemsWithStatusAPIs) {
+      try {
+        const response = await fetch(`/api/${system}/status`);
+        if (response.ok) {
+          const data = await response.json();
+          setIntegrationStatuses(prev => ({
+            ...prev,
+            [system]: {
+              status: data.connected ? 'connected' : 'not_configured',
+              connected: data.connected,
+              message: data.message
+            }
+          }));
+        } else {
+          setIntegrationStatuses(prev => ({
+            ...prev,
+            [system]: { status: 'error', connected: false, message: 'Failed to check status' }
+          }));
+        }
+      } catch (error) {
+        setIntegrationStatuses(prev => ({
+          ...prev,
+          [system]: { status: 'error', connected: false, message: 'Network error' }
+        }));
+      }
+    }
+  };
+
+  const navigateToTickets = (system) => {
+    if (system === 'zendesk') {
+      navigateToZendeskTickets();
+    } else {
+      // For now, just filter the dashboard to show records from this system
+      setSelectedSystem(system);
+    }
+    setShowConnectedSystems(false);
+  };
 
   // Sorting state
   const [sortColumn, setSortColumn] = useState(null);
@@ -778,7 +861,7 @@ const SystemIntegrationDashboard = () => {
     }
     
     // Auto-save the configuration
-    autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder);
+    autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder, columnDisplayNames);
   };
 
   // Inline editing functions for custom columns
@@ -875,7 +958,7 @@ const SystemIntegrationDashboard = () => {
       [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
       
       // Auto-save the configuration
-      autoSaveConfig(visibleColumns, newOrder);
+      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames);
       
       return newOrder;
     });
@@ -913,7 +996,7 @@ const SystemIntegrationDashboard = () => {
       newOrder.splice(dropIndex, 0, draggedItem);
       
       // Auto-save the configuration
-      autoSaveConfig(visibleColumns, newOrder);
+      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames);
       
       return newOrder;
     });
@@ -947,7 +1030,7 @@ const SystemIntegrationDashboard = () => {
       }
       
       // Auto-save the configuration
-      autoSaveConfig(newVisibleColumns, newColumnOrder);
+      autoSaveConfig(newVisibleColumns, newColumnOrder, columnDisplayNames);
     }
     setShowAddColumn(false);
   };
@@ -957,7 +1040,7 @@ const SystemIntegrationDashboard = () => {
     setVisibleColumns(newVisibleColumns);
     
     // Auto-save the configuration
-    autoSaveConfig(newVisibleColumns, columnOrder);
+    autoSaveConfig(newVisibleColumns, columnOrder, columnDisplayNames);
   };
 
   const toggleSystemExpansion = (systemKey) => {
@@ -997,6 +1080,31 @@ const SystemIntegrationDashboard = () => {
         alert('Failed to delete custom column');
       }
     }
+  };
+
+  // Display name editing handlers
+  const startEditingDisplayName = (columnKey, currentName) => {
+    setEditingDisplayName({ columnKey, currentName });
+    setDisplayNameInput(currentName);
+  };
+
+  const saveDisplayName = () => {
+    if (editingDisplayName && displayNameInput.trim()) {
+      const newDisplayNames = {
+        ...columnDisplayNames,
+        [editingDisplayName.columnKey]: displayNameInput.trim()
+      };
+      setColumnDisplayNames(newDisplayNames);
+      // Auto-save the configuration with the new display names
+      autoSaveConfig(visibleColumns, columnOrder, newDisplayNames);
+    }
+    setEditingDisplayName(null);
+    setDisplayNameInput('');
+  };
+
+  const cancelDisplayNameEdit = () => {
+    setEditingDisplayName(null);
+    setDisplayNameInput('');
   };
 
   // Helper function to safely get customFields as an object
@@ -1039,11 +1147,6 @@ const SystemIntegrationDashboard = () => {
             rawCustomFields: record.customFields,
             customFieldsType: typeof record.customFields
           });
-        }
-        
-        // Handle boolean values for display
-        if (meta?.type === 'boolean' && typeof value === 'boolean') {
-          value = value ? 'Yes' : 'No';
         }
       } catch (error) {
         console.warn('Error parsing custom fields:', error);
@@ -1143,11 +1246,14 @@ const SystemIntegrationDashboard = () => {
       return (
         <div className="cursor-pointer hover:bg-gray-50 transition-colors rounded w-full h-full" onClick={() => startEditing(record.id, field, value, meta.type)} title="Click to edit">
           {meta?.type === 'boolean' ? (
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-              value === 'Yes' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-800 border border-gray-200'
-            }`}>
-              {value}
-            </span>
+            <div className="flex items-center justify-center">
+              <input
+                type="checkbox"
+                checked={value === 'Yes' || value === true}
+                readOnly
+                className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+              />
+            </div>
           ) : meta?.type === 'select' ? (
             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
               {value}
@@ -1245,10 +1351,6 @@ const SystemIntegrationDashboard = () => {
           try {
             const customFields = getCustomFields(record);
             value = customFields[field];
-            // Handle boolean values for display
-            if (typeof value === 'boolean') {
-              value = value ? 'Yes' : 'No';
-            }
             value = value || '-';
           } catch {
             value = '-';
@@ -1292,6 +1394,20 @@ const SystemIntegrationDashboard = () => {
     }
 
     const color = getSystemColor(record.sourceSystem);
+    
+    // Special handling for boolean values - render as checkboxes
+    if (typeof value === 'boolean' || (typeof value === 'string' && (value === 'Yes' || value === 'No'))) {
+      return (
+        <div className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            checked={value === true || value === 'Yes'}
+            readOnly
+            className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+          />
+        </div>
+      );
+    }
     
     switch (meta?.type) {
       case 'badge': {
@@ -1908,13 +2024,22 @@ const SystemIntegrationDashboard = () => {
                             #{index + 1}
                           </div>
                           
-                          <button
-                            onClick={() => removeColumn(columnKey)}
-                            className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                            title="Remove column"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                              title="Edit display name"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => removeColumn(columnKey)}
+                              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                              title="Remove column"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       );
                     }).filter(Boolean)}
@@ -1922,6 +2047,42 @@ const SystemIntegrationDashboard = () => {
                 )}
               </div>
             </div>
+            
+            {/* Display Name Editing */}
+            {editingDisplayName && (
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-medium text-blue-800 mb-3">Edit Display Name</h4>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={displayNameInput}
+                    onChange={(e) => setDisplayNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveDisplayName();
+                      if (e.key === 'Escape') cancelDisplayNameEdit();
+                    }}
+                    className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    placeholder="Enter display name"
+                    autoFocus
+                  />
+                  <button
+                    onClick={saveDisplayName}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={cancelDisplayNameEdit}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  This will change how the column appears in the table header.
+                </p>
+              </div>
+            )}
             
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
               <button
@@ -2064,21 +2225,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-green-50 rounded-lg border border-green-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-green-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-green-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-green-50 rounded-lg border border-green-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-green-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-green-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-green-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-green-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2110,21 +2279,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-blue-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-blue-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-blue-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-blue-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-blue-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-blue-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2156,21 +2333,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-red-50 rounded-lg border border-red-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-red-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-red-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-red-50 rounded-lg border border-red-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-red-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-red-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-red-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-red-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2202,21 +2387,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-gray-50 rounded-lg border border-gray-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-gray-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-gray-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-gray-50 rounded-lg border border-gray-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-gray-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-gray-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-gray-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2248,21 +2441,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-blue-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-blue-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-blue-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-blue-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-blue-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-blue-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2294,21 +2495,29 @@ const SystemIntegrationDashboard = () => {
                           .map(columnKey => {
                             const meta = currentColumnMetadata[columnKey];
                             return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-purple-50 rounded-lg border border-purple-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-purple-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-purple-600 capitalize">
-                                    {meta.group}
+                              <div key={columnKey} className="flex items-center gap-2">
+                                <button
+                                  onClick={() => addColumn(columnKey)}
+                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-purple-50 rounded-lg border border-purple-100 transition-colors text-left"
+                                >
+                                  <div>
+                                    <span className="text-sm font-medium text-purple-700">
+                                      {meta.label}
+                                    </span>
+                                    <div className="text-xs text-purple-600 capitalize">
+                                      {meta.group}
+                                    </div>
                                   </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-purple-600" />
-                              </button>
+                                  <Plus className="w-4 h-4 text-purple-600" />
+                                </button>
+                                <button
+                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
+                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
                             );
                           })}
                       </div>
@@ -2318,7 +2527,43 @@ const SystemIntegrationDashboard = () => {
               )}
             </div>
             
-                {!showCustomColumnForm && (
+            {/* Display Name Editing */}
+            {editingDisplayName && (
+              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <h4 className="text-sm font-medium text-blue-800 mb-3">Edit Display Name</h4>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={displayNameInput}
+                    onChange={(e) => setDisplayNameInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') saveDisplayName();
+                      if (e.key === 'Escape') cancelDisplayNameEdit();
+                    }}
+                    className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    placeholder="Enter display name"
+                    autoFocus
+                  />
+                  <button
+                    onClick={saveDisplayName}
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={cancelDisplayNameEdit}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  This will change how the column appears in the table header.
+                </p>
+              </div>
+            )}
+            
+            {!showCustomColumnForm && !editingDisplayName && (
                   <div className="flex justify-end gap-3 mt-6">
                     <button
                       onClick={() => setShowAddColumn(false)}
@@ -2333,6 +2578,271 @@ const SystemIntegrationDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Connected Systems Modal */}
+      {showConnectedSystems && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900">System Integrations</h3>
+              <button
+                onClick={() => setShowConnectedSystems(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Zendesk Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/zendesk.svg" alt="Zendesk" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">Zendesk</h4>
+                        <p className="text-sm text-gray-600">Support tickets</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.zendesk.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.zendesk.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.zendesk.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.zendesk.status === 'connected' && 'Connected and ready to sync tickets'}
+                      {integrationStatuses.zendesk.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.zendesk.status === 'error' && integrationStatuses.zendesk.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.zendesk.connected && (
+                    <button
+                      onClick={() => navigateToTickets('zendesk')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Tickets
+                    </button>
+                  )}
+                </div>
+
+                {/* Jira Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/jira.svg" alt="Jira" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">Jira</h4>
+                        <p className="text-sm text-gray-600">Project management</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.jira.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.jira.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.jira.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.jira.status === 'connected' && 'Connected and ready to sync issues'}
+                      {integrationStatuses.jira.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.jira.status === 'error' && integrationStatuses.jira.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.jira.connected && (
+                    <button
+                      onClick={() => navigateToTickets('jira')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Issues
+                    </button>
+                  )}
+                </div>
+
+                {/* Slack Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/slack.svg" alt="Slack" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">Slack</h4>
+                        <p className="text-sm text-gray-600">Team communication</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.slack.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.slack.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.slack.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.slack.status === 'connected' && 'Connected and ready to sync messages'}
+                      {integrationStatuses.slack.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.slack.status === 'error' && integrationStatuses.slack.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.slack.connected && (
+                    <button
+                      onClick={() => navigateToTickets('slack')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Messages
+                    </button>
+                  )}
+                </div>
+
+                {/* GitHub Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/github.svg" alt="GitHub" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">GitHub</h4>
+                        <p className="text-sm text-gray-600">Code repository</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.github.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.github.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.github.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.github.status === 'connected' && 'Connected and ready to sync issues'}
+                      {integrationStatuses.github.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.github.status === 'error' && integrationStatuses.github.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.github.connected && (
+                    <button
+                      onClick={() => navigateToTickets('github')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Issues
+                    </button>
+                  )}
+                </div>
+
+                {/* Salesforce Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/salesforce.svg" alt="Salesforce" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">Salesforce</h4>
+                        <p className="text-sm text-gray-600">CRM platform</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.salesforce.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.salesforce.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.salesforce.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.salesforce.status === 'connected' && 'Connected and ready to sync cases'}
+                      {integrationStatuses.salesforce.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.salesforce.status === 'error' && integrationStatuses.salesforce.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.salesforce.connected && (
+                    <button
+                      onClick={() => navigateToTickets('salesforce')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Cases
+                    </button>
+                  )}
+                </div>
+
+                {/* Teams Integration */}
+                <div className="border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <Image src="/assets/logos/teams.svg" alt="Microsoft Teams" width={32} height={32} />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">Microsoft Teams</h4>
+                        <p className="text-sm text-gray-600">Team collaboration</p>
+                      </div>
+                    </div>
+                    <div className={`w-3 h-3 rounded-full ${
+                      integrationStatuses.teams.status === 'connected' ? 'bg-green-500' :
+                      integrationStatuses.teams.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
+                      'bg-gray-400'
+                    }`} />
+                  </div>
+                  
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600">
+                      {integrationStatuses.teams.status === 'checking' && 'Checking connection...'}
+                      {integrationStatuses.teams.status === 'connected' && 'Connected and ready to sync messages'}
+                      {integrationStatuses.teams.status === 'not_configured' && 'Not configured yet'}
+                      {integrationStatuses.teams.status === 'error' && integrationStatuses.teams.message}
+                    </p>
+                  </div>
+                  
+                  {integrationStatuses.teams.connected && (
+                    <button
+                      onClick={() => navigateToTickets('teams')}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      View Messages
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => setShowConnectedSystems(false)}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

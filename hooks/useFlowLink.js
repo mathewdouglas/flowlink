@@ -29,15 +29,24 @@ export function useDashboardConfig(userId, organizationId) {
   );
 
   const saveConfig = async (config) => {
+    // Optimistically update the cache with a function
+    mutate(currentData => ({
+      ...currentData,
+      ...config
+    }), false);
+
     try {
       await axios.post('/api/dashboard/config', {
         userId,
         organizationId,
         ...config
       });
-      mutate(); // Revalidate the data
+      // Revalidate after successful save
+      mutate();
     } catch (error) {
       console.error('Error saving dashboard config:', error);
+      // Revert optimistic update on error
+      mutate();
       throw error;
     }
   };

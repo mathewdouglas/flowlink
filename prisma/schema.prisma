@@ -156,18 +156,19 @@ model IntegrationCredentials {
 }
 
 model DashboardConfig {
-  id             String       @id @default(cuid())
-  userId         String       @map("user_id")
-  organizationId String       @map("organization_id")
-  configName     String       @default("default") @map("config_name")
-  visibleColumns String       @map("visible_columns")
-  columnOrder    String       @map("column_order")
-  filters        String?
-  isDefault      Boolean      @default(false) @map("is_default")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String       @id @default(cuid())
+  userId            String       @map("user_id")
+  organizationId    String       @map("organization_id")
+  configName        String       @default("default") @map("config_name")
+  visibleColumns    String       @map("visible_columns")
+  columnOrder       String       @map("column_order")
+  columnDisplayNames String?      @map("column_display_names")
+  filters           String?
+  isDefault         Boolean      @default(false) @map("is_default")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId, configName])
   @@map("dashboard_configs")

@@ -106,6 +106,13 @@ async function main() {
         'zendesk.assignee',
         'zendesk.created_at'
       ]),
+      columnDisplayNames: JSON.stringify({
+        'zendesk.subject': 'Ticket Subject',
+        'zendesk.status': 'Status',
+        'zendesk.priority': 'Priority Level',
+        'zendesk.assignee': 'Assigned To',
+        'zendesk.created_at': 'Created Date'
+      }),
       isDefault: true
     }
   });
