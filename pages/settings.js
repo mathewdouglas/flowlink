@@ -21,6 +21,9 @@ const SettingsPage = () => {
   // Sync service hook
   const { syncStatus, isLoading: isSyncLoading, startService, stopService, triggerSync } = useSyncService(CURRENT_ORG_ID);
   
+  // Debug logging to see what's in syncStatus
+  console.log('Sync Status:', syncStatus);
+  
   // Error handling
   const { addError } = useErrors();
 

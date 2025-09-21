@@ -286,6 +286,11 @@ const SystemIntegrationDashboard = () => {
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
   const [showConnectedSystems, setShowConnectedSystems] = useState(false);
 
+  // Inline editing state for custom columns
+  const [editingCell, setEditingCell] = useState(null); // { recordId, fieldName }
+  const [editingValue, setEditingValue] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
   // Filter and search records using real database data
   const filteredRecords = records.filter(record => {
     // Search filter
@@ -494,6 +499,88 @@ const SystemIntegrationDashboard = () => {
     autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder);
   };
 
+  // Inline editing functions for custom columns
+  const startEditing = (recordId, fieldName, currentValue, columnType) => {
+    setEditingCell({ recordId, fieldName });
+    
+    // Convert display value back to actual value for editing
+    if (columnType === 'boolean') {
+      setEditingValue(currentValue === 'Yes' ? 'true' : currentValue === 'No' ? 'false' : currentValue);
+    } else {
+      setEditingValue(currentValue === '-' ? '' : String(currentValue));
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingCell(null);
+    setEditingValue('');
+  };
+
+  const saveCustomFieldEdit = async (recordId, fieldName, value, columnType) => {
+    setIsSavingEdit(true);
+    
+    try {
+      // Convert value based on column type
+      let processedValue = value;
+      if (columnType === 'boolean') {
+        processedValue = value === 'true' || value === true;
+      } else if (columnType === 'number') {
+        processedValue = value === '' ? null : Number(value);
+      } else if (value === '') {
+        processedValue = null;
+      }
+
+      console.log('Saving custom field:', { recordId, fieldName, value, processedValue, columnType });
+
+      const response = await fetch(`/api/records/${recordId}/custom-fields`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customFieldValues: {
+            [fieldName]: processedValue
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error:', response.status, errorText);
+        throw new Error(`Failed to save custom field: ${response.status} ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('Save successful:', result);
+
+      // Clear editing state first
+      cancelEditing();
+
+      // Refresh the records to show updated data with a slight delay
+      setTimeout(async () => {
+        console.log('Triggering data refresh...');
+        await mutate();
+        console.log('Data refresh completed');
+      }, 50);
+      
+    } catch (error) {
+      console.error('Error saving custom field:', error);
+      alert(`Failed to save: ${error.message}`);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleKeyPress = (e, recordId, fieldName, columnType) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveCustomFieldEdit(recordId, fieldName, editingValue, columnType);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEditing();
+    }
+  };
+
   const moveColumn = (columnKey, direction) => {
     setColumnOrder(prev => {
       const currentIndex = prev.indexOf(columnKey);
@@ -630,47 +717,15 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
-  const handleCustomFieldEdit = (recordId, fieldName, fieldType, currentValue) => {
-    const customColumn = customColumns.find(col => col.name === fieldName);
-    
-    if (fieldType === 'boolean') {
-      // Toggle boolean values directly
-      const newValue = currentValue === 'Yes' ? false : true;
-      handleUpdateCustomField(recordId, fieldName, newValue);
-    } else if (fieldType === 'select' && customColumn) {
-      // Show select options
-      const options = JSON.parse(customColumn.selectOptions || '[]');
-      const selectedOption = prompt(`Select a value for ${customColumn.label}:\n\n${options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n')}\n\nEnter the number of your choice:`);
-      
-      if (selectedOption) {
-        const optionIndex = parseInt(selectedOption) - 1;
-        if (optionIndex >= 0 && optionIndex < options.length) {
-          handleUpdateCustomField(recordId, fieldName, options[optionIndex]);
-        }
-      }
-    } else {
-      // For text, number, and date - use prompt for simple editing
-      const inputType = fieldType === 'date' ? 'date' : fieldType === 'number' ? 'number' : 'text';
-      const promptValue = fieldType === 'date' && currentValue && currentValue !== '-' 
-        ? new Date(currentValue).toISOString().split('T')[0] 
-        : currentValue === '-' ? '' : currentValue;
-        
-      const newValue = prompt(`Enter ${fieldType} value:`, promptValue);
-      
-      if (newValue !== null) {
-        handleUpdateCustomField(recordId, fieldName, newValue);
-      }
-    }
-  };
-
-  const handleUpdateCustomField = async (recordId, fieldName, newValue) => {
+  // Helper function to safely get customFields as an object
+  const getCustomFields = (record) => {
     try {
-      await updateRecordCustomFields(recordId, { [fieldName]: newValue });
-      // Refresh the records to show updated values
-      mutate();
+      return typeof record.customFields === 'string' 
+        ? JSON.parse(record.customFields) 
+        : (record.customFields || {});
     } catch (error) {
-      console.error('Error updating custom field:', error);
-      alert('Failed to update field value');
+      console.warn('Error parsing custom fields:', error);
+      return {};
     }
   };
 
@@ -680,7 +735,7 @@ const SystemIntegrationDashboard = () => {
     // Return empty cell if metadata doesn't exist
     if (!meta) {
       console.warn(`No metadata found for column: ${columnKey}`);
-      return <td key={columnKey} className="px-4 py-3 text-gray-500">-</td>;
+      return <td key={columnKey} className="px-4 py-2 text-gray-500">-</td>;
     }
     
     const [system, field] = columnKey.split('.');
@@ -689,10 +744,22 @@ const SystemIntegrationDashboard = () => {
     if (system === 'custom') {
       let value = '-';
       try {
-        const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+        const customFields = getCustomFields(record);
         value = customFields[field] || meta?.customColumn?.defaultValue || '-';
         
-        // Handle boolean values
+        // Debug logging
+        if (field === 'test' || customFields[field] !== undefined) {
+          console.log('Custom field display:', { 
+            recordId: record.id, 
+            field, 
+            customFields, 
+            value,
+            rawCustomFields: record.customFields,
+            customFieldsType: typeof record.customFields
+          });
+        }
+        
+        // Handle boolean values for display
         if (meta?.type === 'boolean' && typeof value === 'boolean') {
           value = value ? 'Yes' : 'No';
         }
@@ -701,32 +768,124 @@ const SystemIntegrationDashboard = () => {
         value = '-';
       }
 
-      if (value === null || value === undefined || value === '') {
-        return <span className="text-gray-500 font-medium italic">-</span>;
+      // Check if this cell is being edited
+      const isEditing = editingCell?.recordId === record.id && editingCell?.fieldName === field;
+
+      if (isEditing) {
+        // Render inline editor based on column type
+        switch (meta?.type) {
+          case 'boolean':
+            return (
+              <td key={columnKey} className="px-4 py-2 align-top">
+                <select
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                  disabled={isSavingEdit}
+                >
+                  <option value="true">Yes</option>
+                  <option value="false">No</option>
+                </select>
+              </td>
+            );
+          case 'select':
+            const options = JSON.parse(meta?.customColumn?.selectOptions || '[]');
+            return (
+              <td key={columnKey} className="px-4 py-2 align-top">
+                <select
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  autoFocus
+                  disabled={isSavingEdit}
+                >
+                  <option value="">Select an option</option>
+                  {options.map((option, idx) => (
+                    <option key={idx} value={option}>{option}</option>
+                  ))}
+                </select>
+              </td>
+            );
+          case 'date':
+            return (
+              <td key={columnKey} className="px-4 py-2 align-top">
+                <input
+                  type="date"
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                  placeholder="Select a date"
+                  autoFocus
+                  disabled={isSavingEdit}
+                />
+              </td>
+            );
+          case 'number':
+            return (
+              <td key={columnKey} className="px-4 py-2 align-top">
+                <input
+                  type="number"
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                  placeholder="Enter a number"
+                  autoFocus
+                  disabled={isSavingEdit}
+                />
+              </td>
+            );
+          default: // text
+            return (
+              <td key={columnKey} className="px-4 py-2 align-top">
+                <input
+                  type="text"
+                  value={editingValue}
+                  onChange={(e) => setEditingValue(e.target.value)}
+                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                  placeholder="Enter text"
+                  autoFocus
+                  disabled={isSavingEdit}
+                />
+              </td>
+            );
+        }
       }
 
-      // Render custom column based on type
-      switch (meta?.type) {
-        case 'boolean':
-          return (
-            <div className="flex items-center space-x-2">
+      // Normal display mode (not editing)
+      if (value === null || value === undefined || value === '') {
+        value = '-';
+      }
+
+      // Render custom column in display mode
+      return (
+        <td key={columnKey} className="px-4 py-2 align-top group">
+          <div 
+            className="cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
+            onClick={() => startEditing(record.id, field, value, meta.type)}
+            title="Click to edit"
+          >
+            {meta?.type === 'boolean' ? (
               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                 value === 'Yes' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-800 border border-gray-200'
               }`}>
                 {value}
               </span>
-              <button
-                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
-                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit value"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        case 'date':
-          return (
-            <div className="flex items-center space-x-2">
+            ) : meta?.type === 'select' ? (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                {value}
+              </span>
+            ) : meta?.type === 'date' ? (
               <span className="text-sm text-gray-700 font-medium">
                 {value && value !== '-' ? new Date(value).toLocaleDateString('en-GB', { 
                   day: '2-digit', 
@@ -734,57 +893,13 @@ const SystemIntegrationDashboard = () => {
                   year: 'numeric' 
                 }) : '-'}
               </span>
-              <button
-                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
-                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit value"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        case 'number':
-          return (
-            <div className="flex items-center space-x-2">
+            ) : (
               <span className="text-sm text-gray-900 font-medium">{value}</span>
-              <button
-                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
-                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit value"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        case 'select':
-          return (
-            <div className="flex items-center space-x-2">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {value}
-              </span>
-              <button
-                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
-                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit value"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        default: // text
-          return (
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-900 font-medium">{value}</span>
-              <button
-                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
-                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Edit value"
-              >
-                <Edit3 className="w-3 h-3" />
-              </button>
-            </div>
-          );
-      }
+            )}
+            <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2 inline" />
+          </div>
+        </td>
+      );
     }
     
     // Get value from record based on system and field mapping
@@ -846,7 +961,7 @@ const SystemIntegrationDashboard = () => {
         case 'channel':
           // Extract channel from customFields.via.channel
           try {
-            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            const customFields = getCustomFields(record);
             value = customFields.via?.channel || customFields.channel || '-';
           } catch {
             value = '-';
@@ -862,7 +977,7 @@ const SystemIntegrationDashboard = () => {
         case 'is_public':
           // Get from customFields
           try {
-            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            const customFields = getCustomFields(record);
             value = customFields[field];
             // Handle boolean values for display
             if (typeof value === 'boolean') {
@@ -876,7 +991,7 @@ const SystemIntegrationDashboard = () => {
         case 'due_at':
           // Get due date from customFields
           try {
-            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            const customFields = getCustomFields(record);
             value = customFields.due_at;
           } catch {
             value = '-';
@@ -885,7 +1000,7 @@ const SystemIntegrationDashboard = () => {
         default:
           // Try to get from customFields
           try {
-            const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+            const customFields = getCustomFields(record);
             value = customFields[field] || '-';
           } catch {
             value = '-';
@@ -1306,8 +1421,8 @@ const SystemIntegrationDashboard = () => {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {linkedRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-4 whitespace-nowrap align-top">
+                  <tr key={record.id} className="hover:bg-gray-50 group">
+                    <td className="px-4 py-2 whitespace-nowrap align-top">
                       {record.hasLinks ? (
                         <div className="flex items-center gap-2">
                           <Link className="w-4 h-4 text-green-500" />
@@ -1327,8 +1442,8 @@ const SystemIntegrationDashboard = () => {
                       const [, field] = columnKey.split('.');
                       const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
                       const cellClass = isTextColumn 
-                        ? "px-4 py-4 align-top max-w-xs" 
-                        : "px-4 py-4 whitespace-nowrap align-top";
+                        ? "px-4 py-2 align-top max-w-xs" 
+                        : "px-4 py-2 whitespace-nowrap align-top";
                       
                       return (
                         <td key={columnKey} className={cellClass}>
@@ -1336,7 +1451,7 @@ const SystemIntegrationDashboard = () => {
                         </td>
                       );
                     })}
-                    <td className="px-4 py-4 whitespace-nowrap text-sm font-medium align-top">
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-top">
                       <div className="flex items-center gap-2">
                         <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200" title="Open in source system">
                           <ExternalLink className="w-4 h-4" />
