@@ -33,6 +33,13 @@ const SettingsPage = () => {
   const [selectedMapping, setSelectedMapping] = useState(null);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
 
+  // Add mapping form state
+  const [sourceSystem, setSourceSystem] = useState('Zendesk');
+  const [sourceField, setSourceField] = useState('id');
+  const [targetSystem, setTargetSystem] = useState('Jira');
+  const [targetField, setTargetField] = useState('id');
+  const [mappingName, setMappingName] = useState('');
+
   // Connected systems state
   const [connectedSystems, setConnectedSystems] = useState([
     { id: 1, name: 'Zendesk', type: 'support', status: 'connected', color: 'bg-green-500' },
@@ -417,7 +424,11 @@ const SettingsPage = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Source System</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <select 
+                    value={sourceSystem}
+                    onChange={(e) => setSourceSystem(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  >
                     <option>Zendesk</option>
                     <option>Jira</option>
                     <option>Slack</option>
@@ -428,7 +439,11 @@ const SettingsPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Source Field</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <select 
+                    value={sourceField}
+                    onChange={(e) => setSourceField(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  >
                     <option>id</option>
                     <option>external_ref</option>
                     <option>linked_ticket</option>
@@ -443,7 +458,11 @@ const SettingsPage = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Target System</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <select 
+                    value={targetSystem}
+                    onChange={(e) => setTargetSystem(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  >
                     <option>Jira</option>
                     <option>Zendesk</option>
                     <option>Slack</option>
@@ -454,7 +473,11 @@ const SettingsPage = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">Target Field</label>
-                  <select className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900">
+                  <select 
+                    value={targetField}
+                    onChange={(e) => setTargetField(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                  >
                     <option>id</option>
                     <option>key</option>
                     <option>ticket_number</option>
@@ -466,6 +489,8 @@ const SettingsPage = () => {
                 <label className="block text-sm font-medium text-gray-900 mb-2">Mapping Name</label>
                 <input
                   type="text"
+                  value={mappingName}
+                  onChange={(e) => setMappingName(e.target.value)}
                   placeholder="e.g., Support Escalation Tracking"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-900 placeholder-gray-500"
                 />
@@ -479,9 +504,34 @@ const SettingsPage = () => {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  // Add the mapping logic here
-                  setShowAddMapping(false);
+                onClick={async () => {
+                  try {
+                    // Validate required fields
+                    if (!sourceSystem || !sourceField || !targetSystem || !targetField || !mappingName.trim()) {
+                      addError('All fields are required');
+                      return;
+                    }
+
+                    // Call createMapping
+                    await createMapping({
+                      sourceSystem,
+                      sourceField,
+                      targetSystem,
+                      targetField,
+                      mappingName: mappingName.trim()
+                    });
+
+                    // Reset form and close modal
+                    setSourceSystem('Zendesk');
+                    setSourceField('id');
+                    setTargetSystem('Jira');
+                    setTargetField('id');
+                    setMappingName('');
+                    setShowAddMapping(false);
+                  } catch (error) {
+                    console.error('Error creating mapping:', error);
+                    addError('Failed to create mapping');
+                  }
                 }}
                 className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
               >
