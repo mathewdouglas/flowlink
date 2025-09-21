@@ -8,6 +8,7 @@ import { useSyncService } from '../hooks/useSyncService';
 import { useErrors } from '../context/AppContext';
 import { LoadingSpinner, ErrorMessage, Modal, Button, Card } from '../components/UI/CommonComponents';
 import ZendeskConfigModal from '../components/ZendeskConfigModal';
+import JiraConfigModal from '../components/JiraConfigModal';
 import { APP_CONSTANTS } from '../lib/constants';
 
 // This would come from your auth system - using the actual seeded org ID
@@ -89,13 +90,35 @@ const SettingsPage = () => {
     }
   }, []);
 
+  // Check Jira connection status
+  const checkJiraConnection = useCallback(async () => {
+    updateSystemStatus('Jira', 'pending');
+    try {
+      const res = await fetch('/api/jira/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          updateSystemStatus('Jira', 'connected');
+        } else {
+          updateSystemStatus('Jira', data.status === 'not_configured' ? 'not connected' : 'error');
+        }
+      } else {
+        updateSystemStatus('Jira', 'error');
+      }
+    } catch {
+      updateSystemStatus('Jira', 'error');
+    }
+  }, []);
+
   // Check connection status on mount
   useEffect(() => {
     checkZendeskConnection();
-  }, [checkZendeskConnection]);
+    checkJiraConnection();
+  }, [checkZendeskConnection, checkJiraConnection]);
 
-  // Zendesk configuration modal state
+  // Configuration modal states
   const [showZendeskConfig, setShowZendeskConfig] = useState(false);
+  const [showJiraConfig, setShowJiraConfig] = useState(false);
 
   // Start background sync service  
   const startBackgroundService = useCallback(async () => {
@@ -212,12 +235,16 @@ const SettingsPage = () => {
                 </div>
                 <p className="text-sm text-gray-600 capitalize">{system.type}</p>
                 <div className="mt-3">
-                  {system.name === 'Zendesk' && (
+                  {(system.name === 'Zendesk' || system.name === 'Jira') && (
                     <button
-                      onClick={() => setShowZendeskConfig(true)}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors duration-200"
+                      onClick={() => system.name === 'Zendesk' ? setShowZendeskConfig(true) : setShowJiraConfig(true)}
+                      className={`px-3 py-1.5 text-white text-xs font-medium rounded-md transition-colors duration-200 ${
+                        system.status === 'not connected'
+                          ? 'bg-green-600 hover:bg-green-700'
+                          : 'bg-blue-600 hover:bg-blue-700'
+                      }`}
                     >
-                      Configure
+                      {system.status === 'not connected' ? 'Set up' : 'Configure'}
                     </button>
                   )}
                 </div>
@@ -598,6 +625,12 @@ const SettingsPage = () => {
       <ZendeskConfigModal
         isOpen={showZendeskConfig}
         onClose={() => setShowZendeskConfig(false)}
+      />
+
+      {/* Jira Configuration Modal */}
+      <JiraConfigModal
+        isOpen={showJiraConfig}
+        onClose={() => setShowJiraConfig(false)}
       />
     </div>
   );
