@@ -7,6 +7,7 @@ import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
 import { useSyncService } from '../hooks/useSyncService';
 import { useErrors } from '../context/AppContext';
 import { LoadingSpinner, ErrorMessage, Modal, Button, Card } from '../components/UI/CommonComponents';
+import ZendeskConfigModal from '../components/ZendeskConfigModal';
 import { APP_CONSTANTS } from '../lib/constants';
 
 // This would come from your auth system - using the actual seeded org ID
@@ -42,13 +43,59 @@ const SettingsPage = () => {
 
   // Connected systems state
   const [connectedSystems, setConnectedSystems] = useState([
-    { id: 1, name: 'Zendesk', type: 'support', status: 'connected', color: 'bg-green-500' },
-    { id: 2, name: 'Jira', type: 'project', status: 'connected', color: 'bg-blue-500' },
-    { id: 3, name: 'Slack', type: 'communication', status: 'error', color: 'bg-red-500' },
-    { id: 4, name: 'GitHub', type: 'development', status: 'connected', color: 'bg-gray-800' },
-    { id: 5, name: 'Salesforce', type: 'crm', status: 'pending', color: 'bg-blue-600' },
-    { id: 6, name: 'Teams', type: 'communication', status: 'connected', color: 'bg-purple-600' }
+    { id: 1, name: 'Zendesk', type: 'support', status: 'pending', color: 'bg-yellow-500' },
+    { id: 2, name: 'Jira', type: 'project', status: 'not connected', color: 'bg-gray-500' },
+    { id: 3, name: 'Slack', type: 'communication', status: 'not connected', color: 'bg-gray-500' },
+    { id: 4, name: 'GitHub', type: 'development', status: 'not connected', color: 'bg-gray-500' },
+    { id: 5, name: 'Salesforce', type: 'crm', status: 'not connected', color: 'bg-gray-500' },
+    { id: 6, name: 'Teams', type: 'communication', status: 'not connected', color: 'bg-gray-500' }
   ]);
+
+  // Helper to update a system's status and color
+  const updateSystemStatus = (systemName, status) => {
+    setConnectedSystems(prev => prev.map(sys => {
+      if (sys.name === systemName) {
+        let color;
+        switch (status) {
+          case 'connected': color = 'bg-green-500'; break;
+          case 'error': color = 'bg-red-500'; break;
+          case 'pending': color = 'bg-yellow-500'; break;
+          case 'not connected': color = 'bg-gray-500'; break;
+          default: color = 'bg-gray-500';
+        }
+        return { ...sys, status, color };
+      }
+      return sys;
+    }));
+  };
+
+  // Check Zendesk connection status
+  const checkZendeskConnection = useCallback(async () => {
+    updateSystemStatus('Zendesk', 'pending');
+    try {
+      const res = await fetch('/api/zendesk/status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.connected) {
+          updateSystemStatus('Zendesk', 'connected');
+        } else {
+          updateSystemStatus('Zendesk', data.status === 'not_configured' ? 'not connected' : 'error');
+        }
+      } else {
+        updateSystemStatus('Zendesk', 'error');
+      }
+    } catch {
+      updateSystemStatus('Zendesk', 'error');
+    }
+  }, []);
+
+  // Check connection status on mount
+  useEffect(() => {
+    checkZendeskConnection();
+  }, [checkZendeskConnection]);
+
+  // Zendesk configuration modal state
+  const [showZendeskConfig, setShowZendeskConfig] = useState(false);
 
   // Start background sync service  
   const startBackgroundService = useCallback(async () => {
@@ -154,7 +201,7 @@ const SettingsPage = () => {
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Connected Systems</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {connectedSystems.map((system) => (
-              <div key={system.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
+              <div key={system.id} className="bg-white rounded-lg p-4 border border-gray-200">
                 <div className="flex items-center justify-between mb-2">
                   <div className={`w-3 h-3 rounded-full ${system.color}`}></div>
                   {getStatusIcon(system.status)}
@@ -165,9 +212,14 @@ const SettingsPage = () => {
                 </div>
                 <p className="text-sm text-gray-600 capitalize">{system.type}</p>
                 <div className="mt-3">
-                  <button className="text-xs text-blue-600 hover:text-blue-800 font-medium">
-                    Configure
-                  </button>
+                  {system.name === 'Zendesk' && (
+                    <button
+                      onClick={() => setShowZendeskConfig(true)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors duration-200"
+                    >
+                      Configure
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -541,6 +593,12 @@ const SettingsPage = () => {
           </div>
         </div>
       )}
+
+      {/* Zendesk Configuration Modal */}
+      <ZendeskConfigModal
+        isOpen={showZendeskConfig}
+        onClose={() => setShowZendeskConfig(false)}
+      />
     </div>
   );
 };
