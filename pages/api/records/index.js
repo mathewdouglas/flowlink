@@ -19,28 +19,51 @@ export default async function handler(req, res) {
 
     // Get records with pagination
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const skip = (page - 1) * limit;
+    const limit = req.query.all === 'true' ? undefined : (parseInt(req.query.limit) || 50);
+    const skip = req.query.all === 'true' ? undefined : ((page - 1) * limit);
 
-    const [records, total] = await Promise.all([
-      prisma.flowRecord.findMany({
-        where,
-        include: {
-          sourceIntegration: {
-            select: {
-              systemName: true,
-              systemType: true
+    let records, total;
+    if (req.query.all === 'true') {
+      // Load all records without pagination
+      [records, total] = await Promise.all([
+        prisma.flowRecord.findMany({
+          where,
+          include: {
+            sourceIntegration: {
+              select: {
+                systemName: true,
+                systemType: true
+              }
             }
+          },
+          orderBy: {
+            sourceUpdatedAt: 'desc'
           }
-        },
-        orderBy: {
-          sourceUpdatedAt: 'desc'
-        },
-        skip,
-        take: limit
-      }),
-      prisma.flowRecord.count({ where })
-    ]);
+        }),
+        prisma.flowRecord.count({ where })
+      ]);
+    } else {
+      // Load paginated records
+      [records, total] = await Promise.all([
+        prisma.flowRecord.findMany({
+          where,
+          include: {
+            sourceIntegration: {
+              select: {
+                systemName: true,
+                systemType: true
+              }
+            }
+          },
+          orderBy: {
+            sourceUpdatedAt: 'desc'
+          },
+          skip,
+          take: limit
+        }),
+        prisma.flowRecord.count({ where })
+      ]);
+    }
 
     // Parse JSON fields for SQLite compatibility
     const parsedRecords = records.map(record => ({

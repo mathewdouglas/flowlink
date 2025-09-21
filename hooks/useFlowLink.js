@@ -3,9 +3,9 @@ import axios from 'axios';
 
 const fetcher = (url) => axios.get(url).then(res => res.data);
 
-export function useFlowRecords(organizationId, system = 'all', page = 1) {
+export function useAllFlowRecords(organizationId, system = 'all') {
   const { data, error, mutate } = useSWR(
-    organizationId ? `/api/records?organizationId=${organizationId}&system=${system}&page=${page}` : null,
+    organizationId ? `/api/records?organizationId=${organizationId}&system=${system}&all=true` : null,
     fetcher,
     {
       refreshInterval: 60000, // Refresh every 1 minute

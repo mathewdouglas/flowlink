@@ -1,9 +1,9 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, CheckCircle, Clock, X, Link, Edit3, Eye, EyeOff, ArrowRight, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
-import { useFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
+import { useAllFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
 import { useCustomColumns } from '../hooks/useCustomColumns';
 import ZendeskSetupForm from './ZendeskSetupForm';
@@ -59,9 +59,8 @@ const SystemIntegrationDashboard = () => {
   };
 
   // Database hooks for real data
-  const [currentPage, setCurrentPage] = useState(1);
   const [selectedSystem, setSelectedSystem] = useState('all');
-  const { records, pagination, isLoading, mutate } = useFlowRecords(CURRENT_ORG_ID, selectedSystem, currentPage);
+  const { records, pagination, isLoading, mutate } = useAllFlowRecords(CURRENT_ORG_ID, selectedSystem);
   const { config, saveConfig } = useDashboardConfig(CURRENT_USER_ID, CURRENT_ORG_ID);
   
   // Linking hooks with fallback empty arrays
@@ -170,7 +169,7 @@ const SystemIntegrationDashboard = () => {
   ]);
 
   // Column metadata with display names, types, and order
-  const columnMetadata = {
+  const columnMetadata = useMemo(() => ({
     // Zendesk columns based on actual API response fields
     'zendesk.id': { label: 'Ticket ID', color: 'green', group: 'zendesk', type: 'text' },
     'zendesk.subject': { label: 'Subject', color: 'green', group: 'zendesk', type: 'text' },
@@ -236,12 +235,12 @@ const SystemIntegrationDashboard = () => {
     'teams.from': { label: 'From', color: 'purple', group: 'teams', type: 'user' },
     'teams.subject': { label: 'Subject', color: 'purple', group: 'teams', type: 'text' },
     'teams.created_datetime': { label: 'Created', color: 'purple', group: 'teams', type: 'date' }
-  };
+  }), []);
 
-  // Function to get combined column metadata (system + custom columns)
-  const getColumnMetadata = () => {
+  // Get current column metadata (including custom columns)
+  const currentColumnMetadata = useMemo(() => {
     const systemColumns = { ...columnMetadata };
-    
+
     // Add custom columns
     const customColumnMetadata = {};
     customColumns.forEach(column => {
@@ -255,11 +254,41 @@ const SystemIntegrationDashboard = () => {
       };
     });
 
-    return { ...systemColumns, ...customColumnMetadata };
-  };
+    // Add Zendesk custom fields (extracted from records)
+    const zendeskCustomFieldMetadata = {};
+    const zendeskCustomFieldIds = new Set();
 
-  // Get current column metadata (including custom columns)
-  const currentColumnMetadata = getColumnMetadata();
+    // Collect unique Zendesk custom field IDs from records
+    records.forEach(record => {
+      if (record.sourceSystem === 'zendesk' && record.customFields) {
+        try {
+          const customFields = record.customFields; // Already parsed by API
+          // Find numeric keys (Zendesk custom field IDs)
+          Object.keys(customFields).forEach(key => {
+            if (/^\d+$/.test(key)) { // Only numeric keys
+              zendeskCustomFieldIds.add(key);
+            }
+          });
+        } catch (error) {
+          // Ignore parsing errors
+        }
+      }
+    });
+
+    // Add Zendesk custom fields to metadata
+    zendeskCustomFieldIds.forEach(fieldId => {
+      zendeskCustomFieldMetadata[`zendesk.custom_${fieldId}`] = {
+        label: `Custom Field ${fieldId}`,
+        color: 'green',
+        group: 'zendesk',
+        type: 'text',
+        isZendeskCustom: true,
+        fieldId: fieldId
+      };
+    });
+
+    return { ...systemColumns, ...customColumnMetadata, ...zendeskCustomFieldMetadata };
+  }, [records, customColumns, columnMetadata]);
 
   // Drag and drop state
   const [draggedColumn, setDraggedColumn] = useState(null);
@@ -277,7 +306,8 @@ const SystemIntegrationDashboard = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSystem, setFilterSystem] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatusColumn, setFilterStatusColumn] = useState('all');
+  const [filterStatusValue, setFilterStatusValue] = useState('all');
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [showCustomColumnForm, setShowCustomColumnForm] = useState(false);
   const [editingColumn, setEditingColumn] = useState(null);
@@ -285,6 +315,104 @@ const SystemIntegrationDashboard = () => {
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
   const [showConnectedSystems, setShowConnectedSystems] = useState(false);
+
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' or 'desc'
+
+  // Helper function to get sort indicator icon
+  const getSortIndicator = (columnKey) => {
+    if (sortColumn !== columnKey) return null;
+    return sortDirection === 'asc' ? <ChevronUp className="w-4 h-4 inline ml-1" /> : <ChevronDown className="w-4 h-4 inline ml-1" />;
+  };
+
+  // Helper function to get field value from a record
+  const getRecordFieldValue = (record, field) => {
+    switch (field) {
+      case 'id':
+      case 'key':
+      case 'number':
+      case 'case_number':
+      case 'message_id':
+        return record.sourceId;
+      case 'subject':
+      case 'summary':
+      case 'title':
+        return record.title;
+      case 'description':
+        return record.description;
+      case 'status':
+      case 'state':
+        return record.status;
+      case 'priority':
+        return record.priority;
+      case 'assignee':
+      case 'owner':
+        return record.assigneeName || record.assigneeEmail;
+      case 'reporter':
+      case 'requester':
+      case 'author':
+      case 'user':
+      case 'from':
+        return record.reporterName || record.reporterEmail;
+      case 'created_at':
+      case 'created':
+      case 'timestamp':
+      case 'created_datetime':
+        return record.sourceCreatedAt;
+      case 'updated_at':
+      case 'updated':
+        return record.sourceUpdatedAt;
+      default:
+        // Handle Zendesk custom fields (format: zendesk.custom_123456789)
+        if (field.startsWith('zendesk.custom_')) {
+          const fieldId = field.substring(15); // Remove 'zendesk.custom_' prefix
+          try {
+            const customFields = record.customFields || {}; // Already parsed by API
+            return customFields[fieldId] || '';
+          } catch {
+            return '';
+          }
+        }
+        // Handle other Zendesk fields from customFields
+        if (field.startsWith('zendesk.')) {
+          const fieldName = field.substring(8); // Remove 'zendesk.' prefix
+          try {
+            const customFields = record.customFields || {}; // Already parsed by API
+            return customFields[fieldName] || '';
+          } catch {
+            return '';
+          }
+        }
+        // Handle Zendesk custom fields (format: custom_123456789)
+        if (field.startsWith('custom_')) {
+          const fieldId = field.substring(7); // Remove 'custom_' prefix
+          try {
+            const customFields = record.customFields || {}; // Already parsed by API
+            return customFields[fieldId] || '';
+          } catch {
+            return '';
+          }
+        }
+        // Handle custom columns (format: custom.column_name)
+        if (field.startsWith('custom.')) {
+          const fieldName = field.substring(7); // Remove 'custom.' prefix
+          try {
+            const customFields = record.customFields || {}; // Already parsed by API
+            return customFields[fieldName] || '';
+          } catch {
+            return '';
+          }
+        }
+        // Try other custom fields
+        try {
+          const customFields = record.customFields || {}; // Already parsed by API
+          return customFields[field];
+        } catch {
+          return '';
+        }
+    }
+  };
 
   // Inline editing state for custom columns
   const [editingCell, setEditingCell] = useState(null); // { recordId, fieldName }
@@ -303,15 +431,159 @@ const SystemIntegrationDashboard = () => {
       record.reporterEmail?.toLowerCase().includes(searchTerm.toLowerCase());
 
     // Status filter  
-    const matchesStatus = filterStatus === 'all' || 
-      record.status?.toLowerCase() === filterStatus.toLowerCase();
+    const matchesStatus = filterStatusColumn === 'all' || filterStatusValue === 'all' || (() => {
+      const [system, field] = filterStatusColumn.split('.');
+      
+      let recordStatus;
+      if (system === record.sourceSystem) {
+        recordStatus = getRecordFieldValue(record, field);
+      } else {
+        // Check linked records
+        const linkedRecord = record.linkedRecords?.find(lr => lr.sourceSystem === system);
+        if (linkedRecord) {
+          recordStatus = getRecordFieldValue(linkedRecord, field);
+        }
+      }
+      
+      return recordStatus?.toLowerCase() === filterStatusValue.toLowerCase();
+    })();
 
     // System filter (handled by selectedSystem already)
     return matchesSearch && matchesStatus;
   });
 
+  // Sorting function
+  const sortRecords = (records, column, direction) => {
+    if (!column) return records;
+
+    return [...records].sort((a, b) => {
+      let aValue, bValue;
+
+      if (column === 'linkStatus') {
+        // Link status sorting is handled separately after linkedRecords are processed
+        aValue = a.id; // Fallback to ID for consistent ordering
+        bValue = b.id;
+      } else {
+        const [system, field] = column.split('.');
+
+        // Get value from the record if it matches the system, otherwise use empty string
+        if (system === a.sourceSystem) {
+          aValue = getRecordFieldValue(a, field);
+        } else {
+          aValue = '';
+        }
+
+        if (system === b.sourceSystem) {
+          bValue = getRecordFieldValue(b, field);
+        } else {
+          bValue = '';
+        }
+      }
+
+      // Handle null/undefined values
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return direction === 'asc' ? 1 : -1;
+      if (bValue == null) return direction === 'asc' ? -1 : 1;
+
+      // Convert to strings for comparison
+      const aStr = String(aValue).toLowerCase();
+      const bStr = String(bValue).toLowerCase();
+
+      if (direction === 'asc') {
+        return aStr.localeCompare(bStr);
+      } else {
+        return bStr.localeCompare(aStr);
+      }
+    });
+  };
+
+  // Sorting handler
+  const handleSort = (columnKey) => {
+    if (sortColumn === columnKey) {
+      // Toggle direction if same column
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New column, start with ascending
+      setSortColumn(columnKey);
+      setSortDirection('asc');
+    }
+  };
+
+  // Get available status columns for filtering
+  const getAvailableStatusColumns = () => {
+    const statusColumns = [];
+    
+    // Add "All Statuses" option
+    statusColumns.push({ key: 'all', label: 'All Status Columns' });
+    
+    // Check visible columns for status fields
+    getVisibleColumnsInOrder().forEach(columnKey => {
+      const [system, field] = columnKey.split('.');
+      if (field === 'status' || field === 'state') {
+        const meta = currentColumnMetadata[columnKey];
+        if (meta) {
+          statusColumns.push({
+            key: columnKey,
+            label: `${meta.label} (${system})`
+          });
+        }
+      }
+    });
+    
+    return statusColumns;
+  };
+
+  // Get available status values for the selected column
+  const getAvailableStatusValues = () => {
+    if (filterStatusColumn === 'all') {
+      return [{ key: 'all', label: 'All Statuses' }];
+    }
+
+    const statusValues = new Set();
+    const [system, field] = filterStatusColumn.split('.');
+    
+    // Collect unique status values from records
+    records.forEach(record => {
+      let statusValue;
+      
+      if (system === record.sourceSystem) {
+        statusValue = getRecordFieldValue(record, field);
+      } else {
+        // Check if this record has a linked record from the target system
+        const safeLinks = Array.isArray(links) ? links : [];
+        const relevantLink = safeLinks.find(link => 
+          (link.sourceRecordId === record.id && link.targetRecord?.sourceSystem === system) ||
+          (link.targetRecordId === record.id && link.sourceRecord?.sourceSystem === system)
+        );
+        
+        if (relevantLink) {
+          const linkedRecord = relevantLink.sourceRecordId === record.id 
+            ? relevantLink.targetRecord 
+            : relevantLink.sourceRecord;
+          if (linkedRecord) {
+            statusValue = getRecordFieldValue(linkedRecord, field);
+          }
+        }
+      }
+      
+      if (statusValue && statusValue !== '-') {
+        statusValues.add(statusValue);
+      }
+    });
+
+    const values = [{ key: 'all', label: 'All Statuses' }];
+    Array.from(statusValues).sort().forEach(value => {
+      values.push({ key: value, label: value });
+    });
+    
+    return values;
+  };
+
+  // Apply sorting to filtered records
+  const sortedRecords = sortRecords(filteredRecords, sortColumn, sortDirection);
+
   // Create linked records structure similar to original dashboard
-  const linkedRecords = filteredRecords.map(record => {
+  const processedRecords = sortedRecords.map(record => {
     // Find all links where this record is either source or target - ensure links is always an array
     const safeLinks = Array.isArray(links) ? links : [];
     const recordLinks = safeLinks.filter(link => 
@@ -336,6 +608,15 @@ const SystemIntegrationDashboard = () => {
       hasLinks: linkedToRecords.length > 0
     };
   });
+
+  // Apply link status sorting if needed
+  const linkedRecords = sortColumn === 'linkStatus' 
+    ? [...processedRecords].sort((a, b) => {
+        const aValue = a.hasLinks ? 1 : 0;
+        const bValue = b.hasLinks ? 1 : 0;
+        return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+      })
+    : processedRecords;
 
   // Loading state
   if (isLoading) {
@@ -404,9 +685,10 @@ const SystemIntegrationDashboard = () => {
     const normalizedStatus = String(status).toLowerCase();
     if (system === 'zendesk') {
       switch (normalizedStatus) {
+        case 'new': return 'text-orange-800 bg-orange-100'; // Orange
         case 'open': return 'text-red-800 bg-red-100'; // Red
         case 'pending': return 'text-blue-800 bg-blue-100'; // Blue
-        case 'on hold': return 'text-black bg-gray-200'; // Black
+        case 'on hold': return 'text-white bg-gray-800'; // Black
         case 'solved': return 'text-gray-800 bg-gray-200'; // Grey
         case 'closed': return 'text-gray-800 bg-gray-200'; // Grey
         default: return 'text-gray-800 bg-gray-100';
@@ -735,7 +1017,7 @@ const SystemIntegrationDashboard = () => {
     // Return empty cell if metadata doesn't exist
     if (!meta) {
       console.warn(`No metadata found for column: ${columnKey}`);
-      return <td key={columnKey} className="px-4 py-2 text-gray-500">-</td>;
+      return <span className="text-gray-500">-</span>;
     }
     
     const [system, field] = columnKey.split('.');
@@ -776,88 +1058,78 @@ const SystemIntegrationDashboard = () => {
         switch (meta?.type) {
           case 'boolean':
             return (
-              <td key={columnKey} className="px-4 py-2 align-top">
-                <select
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
-                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
-                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                  disabled={isSavingEdit}
-                >
-                  <option value="true">Yes</option>
-                  <option value="false">No</option>
-                </select>
-              </td>
+              <select
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+                disabled={isSavingEdit}
+              >
+                <option value="true">Yes</option>
+                <option value="false">No</option>
+              </select>
             );
           case 'select':
             const options = JSON.parse(meta?.customColumn?.selectOptions || '[]');
             return (
-              <td key={columnKey} className="px-4 py-2 align-top">
-                <select
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
-                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
-                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                  disabled={isSavingEdit}
-                >
-                  <option value="">Select an option</option>
-                  {options.map((option, idx) => (
-                    <option key={idx} value={option}>{option}</option>
-                  ))}
-                </select>
-              </td>
+              <select
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                autoFocus
+                disabled={isSavingEdit}
+              >
+                <option value="">Select an option</option>
+                {options.map((option, idx) => (
+                  <option key={idx} value={option}>{option}</option>
+                ))}
+              </select>
             );
           case 'date':
             return (
-              <td key={columnKey} className="px-4 py-2 align-top">
-                <input
-                  type="date"
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
-                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
-                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
-                  placeholder="Select a date"
-                  autoFocus
-                  disabled={isSavingEdit}
-                />
-              </td>
+              <input
+                type="date"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                placeholder="Select a date"
+                autoFocus
+                disabled={isSavingEdit}
+              />
             );
           case 'number':
             return (
-              <td key={columnKey} className="px-4 py-2 align-top">
-                <input
-                  type="number"
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
-                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
-                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
-                  placeholder="Enter a number"
-                  autoFocus
-                  disabled={isSavingEdit}
-                />
-              </td>
+              <input
+                type="number"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                placeholder="Enter a number"
+                autoFocus
+                disabled={isSavingEdit}
+              />
             );
           default: // text
             return (
-              <td key={columnKey} className="px-4 py-2 align-top">
-                <input
-                  type="text"
-                  value={editingValue}
-                  onChange={(e) => setEditingValue(e.target.value)}
-                  onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
-                  onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
-                  className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
-                  placeholder="Enter text"
-                  autoFocus
-                  disabled={isSavingEdit}
-                />
-              </td>
+              <input
+                type="text"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onBlur={() => saveCustomFieldEdit(record.id, field, editingValue, meta.type)}
+                onKeyDown={(e) => handleKeyPress(e, record.id, field, meta.type)}
+                className="w-full px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 placeholder:text-gray-500"
+                placeholder="Enter text"
+                autoFocus
+                disabled={isSavingEdit}
+              />
             );
         }
       }
@@ -869,36 +1141,30 @@ const SystemIntegrationDashboard = () => {
 
       // Render custom column in display mode
       return (
-        <td key={columnKey} className="px-4 py-2 align-top group">
-          <div 
-            className="cursor-pointer hover:bg-gray-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-            onClick={() => startEditing(record.id, field, value, meta.type)}
-            title="Click to edit"
-          >
-            {meta?.type === 'boolean' ? (
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                value === 'Yes' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-800 border border-gray-200'
-              }`}>
-                {value}
-              </span>
-            ) : meta?.type === 'select' ? (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {value}
-              </span>
-            ) : meta?.type === 'date' ? (
-              <span className="text-sm text-gray-700 font-medium">
-                {value && value !== '-' ? new Date(value).toLocaleDateString('en-GB', { 
-                  day: '2-digit', 
-                  month: '2-digit', 
-                  year: 'numeric' 
-                }) : '-'}
-              </span>
-            ) : (
-              <span className="text-sm text-gray-900 font-medium">{value}</span>
-            )}
-            <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2 inline" />
-          </div>
-        </td>
+        <div className="cursor-pointer hover:bg-gray-50 transition-colors rounded w-full h-full" onClick={() => startEditing(record.id, field, value, meta.type)} title="Click to edit">
+          {meta?.type === 'boolean' ? (
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+              value === 'Yes' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-800 border border-gray-200'
+            }`}>
+              {value}
+            </span>
+          ) : meta?.type === 'select' ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+              {value}
+            </span>
+          ) : meta?.type === 'date' ? (
+            <span className="text-sm text-gray-700 font-medium">
+              {value && value !== '-' ? new Date(value).toLocaleDateString('en-GB', { 
+                day: '2-digit', 
+                month: '2-digit', 
+                year: 'numeric' 
+              }) : '-'}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-900 font-medium">{value}</span>
+          )}
+          <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2 inline" />
+        </div>
       );
     }
     
@@ -998,12 +1264,23 @@ const SystemIntegrationDashboard = () => {
           }
           break;
         default:
-          // Try to get from customFields
-          try {
-            const customFields = getCustomFields(record);
-            value = customFields[field] || '-';
-          } catch {
-            value = '-';
+          // Handle Zendesk custom fields (format: custom_123456789)
+          if (field.startsWith('custom_')) {
+            const fieldId = field.substring(7); // Remove 'custom_' prefix
+            try {
+              const customFields = getCustomFields(record);
+              value = customFields[fieldId] || '-';
+            } catch {
+              value = '-';
+            }
+          } else {
+            // Try to get from customFields
+            try {
+              const customFields = getCustomFields(record);
+              value = customFields[field] || '-';
+            } catch {
+              value = '-';
+            }
           }
       }
     } else {
@@ -1354,17 +1631,35 @@ const SystemIntegrationDashboard = () => {
               </div>
               <div className="relative">
                 <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
+                  value={filterStatusColumn}
+                  onChange={(e) => {
+                    setFilterStatusColumn(e.target.value);
+                    setFilterStatusValue('all'); // Reset status value when column changes
+                  }}
                   className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
                 >
-                <option value="all">All Status</option>
-                <option value="Open">Open</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Review">Review</option>
-                <option value="Resolved">Resolved</option>
-                <option value="Done">Done</option>
-                <option value="Pending">Pending</option>
+                  {getAvailableStatusColumns().map(column => (
+                    <option key={column.key} value={column.key}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                  ▼
+                </span>
+              </div>
+              <div className="relative">
+                <select
+                  value={filterStatusValue}
+                  onChange={(e) => setFilterStatusValue(e.target.value)}
+                  disabled={filterStatusColumn === 'all'}
+                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white disabled:bg-gray-100 disabled:text-gray-500"
+                >
+                  {getAvailableStatusValues().map(status => (
+                    <option key={status.key} value={status.key}>
+                      {status.label}
+                    </option>
+                  ))}
                 </select>
                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
                   ▼
@@ -1380,7 +1675,13 @@ const SystemIntegrationDashboard = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Link Status</th>
+                  <th 
+                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
+                    onClick={() => handleSort('linkStatus')}
+                  >
+                    Link Status
+                    {getSortIndicator('linkStatus')}
+                  </th>
                   {getVisibleColumnsInOrder().map(columnKey => {
                     const meta = currentColumnMetadata[columnKey];
                     
@@ -1411,8 +1712,13 @@ const SystemIntegrationDashboard = () => {
                     };
                     
                     return (
-                      <th key={columnKey} className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey)}`}>
+                      <th 
+                        key={columnKey} 
+                        className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey)} cursor-pointer hover:bg-gray-100 select-none`}
+                        onClick={() => handleSort(columnKey)}
+                      >
                         {meta.label}
+                        {getSortIndicator(columnKey)}
                       </th>
                     );
                   }).filter(Boolean)}
@@ -1422,7 +1728,7 @@ const SystemIntegrationDashboard = () => {
               <tbody className="divide-y divide-gray-200">
                 {linkedRecords.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50 group">
-                    <td className="px-4 py-2 whitespace-nowrap align-top">
+                    <td className="px-4 py-2 whitespace-nowrap align-middle">
                       {record.hasLinks ? (
                         <div className="flex items-center gap-2">
                           <Link className="w-4 h-4 text-green-500" />
@@ -1442,8 +1748,8 @@ const SystemIntegrationDashboard = () => {
                       const [, field] = columnKey.split('.');
                       const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
                       const cellClass = isTextColumn 
-                        ? "px-4 py-2 align-top max-w-xs" 
-                        : "px-4 py-2 whitespace-nowrap align-top";
+                        ? "px-4 py-2 align-middle max-w-xs group" 
+                        : "px-4 py-2 whitespace-nowrap align-middle group";
                       
                       return (
                         <td key={columnKey} className={cellClass}>
@@ -1451,7 +1757,7 @@ const SystemIntegrationDashboard = () => {
                         </td>
                       );
                     })}
-                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-top">
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-middle">
                       <div className="flex items-center gap-2">
                         <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200" title="Open in source system">
                           <ExternalLink className="w-4 h-4" />
@@ -1464,6 +1770,13 @@ const SystemIntegrationDashboard = () => {
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-gray-50 border-t border-gray-200">
+                <tr>
+                  <td colSpan={getVisibleColumnsInOrder().length + 2} className="px-4 py-3 text-sm text-gray-700 font-medium">
+                    Total: {linkedRecords.length} record{linkedRecords.length !== 1 ? 's' : ''}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
