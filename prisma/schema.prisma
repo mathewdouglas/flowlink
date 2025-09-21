@@ -33,6 +33,7 @@ model Organization {
   integrations           Integration[]
   recordLinks            RecordLink[]
   userOrganizations      UserOrganization[]
+  customColumns          CustomColumn[]
 
   @@map("organizations")
 }
@@ -188,4 +189,22 @@ model SyncLog {
   integration      Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@map("sync_logs")
+}
+
+model CustomColumn {
+  id             String       @id @default(cuid())
+  organizationId String       @map("organization_id")
+  name           String       // Internal identifier (e.g., "priority_level")
+  label          String       // Display name (e.g., "Priority Level")
+  type           String       // text, number, date, boolean, select
+  defaultValue   String?      @map("default_value")
+  selectOptions  String?      @map("select_options") // JSON array for select type
+  isRequired     Boolean      @default(false) @map("is_required")
+  sortOrder      Int          @default(0) @map("sort_order")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@map("custom_columns")
 }

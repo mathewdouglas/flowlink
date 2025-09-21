@@ -5,7 +5,9 @@ import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, C
 import Image from 'next/image';
 import { useFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
+import { useCustomColumns } from '../hooks/useCustomColumns';
 import ZendeskSetupForm from './ZendeskSetupForm';
+import CustomColumnForm from './CustomColumnForm';
 
 // This would come from your auth system - using the actual seeded org ID
 const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
@@ -65,6 +67,15 @@ const SystemIntegrationDashboard = () => {
   // Linking hooks with fallback empty arrays
   const { links = [], createLink, deleteLink } = useRecordLinks(CURRENT_ORG_ID) || {};
   const { mappings = [], createMapping, updateMapping, deleteMapping } = useFieldMappings(CURRENT_ORG_ID) || {};
+  
+  // Custom columns hook
+  const { 
+    customColumns = [], 
+    createColumn, 
+    updateColumn, 
+    deleteColumn, 
+    updateRecordCustomFields 
+  } = useCustomColumns(CURRENT_ORG_ID);
 
   const [connectedSystems, setConnectedSystems] = useState([
     { id: 1, name: 'Zendesk', type: 'support', status: 'not_connected', color: 'bg-gray-400' },
@@ -227,11 +238,35 @@ const SystemIntegrationDashboard = () => {
     'teams.created_datetime': { label: 'Created', color: 'purple', group: 'teams', type: 'date' }
   };
 
+  // Function to get combined column metadata (system + custom columns)
+  const getColumnMetadata = () => {
+    const systemColumns = { ...columnMetadata };
+    
+    // Add custom columns
+    const customColumnMetadata = {};
+    customColumns.forEach(column => {
+      customColumnMetadata[`custom.${column.name}`] = {
+        label: column.label,
+        color: 'indigo', // Use indigo for custom columns
+        group: 'custom',
+        type: column.type,
+        isCustom: true,
+        customColumn: column
+      };
+    });
+
+    return { ...systemColumns, ...customColumnMetadata };
+  };
+
+  // Get current column metadata (including custom columns)
+  const currentColumnMetadata = getColumnMetadata();
+
   // Drag and drop state
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [showAddColumn, setShowAddColumn] = useState(false);
   const [expandedSystems, setExpandedSystems] = useState({
+    custom: false,
     zendesk: false,
     jira: false,
     slack: false,
@@ -244,6 +279,8 @@ const SystemIntegrationDashboard = () => {
   const [filterSystem, setFilterSystem] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [showColumnConfig, setShowColumnConfig] = useState(false);
+  const [showCustomColumnForm, setShowCustomColumnForm] = useState(false);
+  const [editingColumn, setEditingColumn] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
@@ -526,7 +563,7 @@ const SystemIntegrationDashboard = () => {
   };
 
   const getAvailableColumns = () => {
-    return Object.keys(columnMetadata).filter(columnKey => !visibleColumns.includes(columnKey));
+    return Object.keys(currentColumnMetadata).filter(columnKey => !visibleColumns.includes(columnKey));
   };
 
   const addColumn = (columnKey) => {
@@ -561,9 +598,194 @@ const SystemIntegrationDashboard = () => {
     }));
   };
 
+  // Custom column handlers
+  const handleSaveCustomColumn = async (columnData) => {
+    try {
+      if (editingColumn) {
+        await updateColumn(editingColumn.id, columnData);
+      } else {
+        await createColumn(columnData);
+      }
+      setShowCustomColumnForm(false);
+      setEditingColumn(null);
+    } catch (error) {
+      console.error('Error saving custom column:', error);
+      throw error;
+    }
+  };
+
+  const handleEditCustomColumn = (column) => {
+    setEditingColumn(column);
+    setShowCustomColumnForm(true);
+  };
+
+  const handleDeleteCustomColumn = async (columnId) => {
+    if (confirm('Are you sure you want to delete this custom column? This cannot be undone.')) {
+      try {
+        await deleteColumn(columnId);
+      } catch (error) {
+        console.error('Error deleting custom column:', error);
+        alert('Failed to delete custom column');
+      }
+    }
+  };
+
+  const handleCustomFieldEdit = (recordId, fieldName, fieldType, currentValue) => {
+    const customColumn = customColumns.find(col => col.name === fieldName);
+    
+    if (fieldType === 'boolean') {
+      // Toggle boolean values directly
+      const newValue = currentValue === 'Yes' ? false : true;
+      handleUpdateCustomField(recordId, fieldName, newValue);
+    } else if (fieldType === 'select' && customColumn) {
+      // Show select options
+      const options = JSON.parse(customColumn.selectOptions || '[]');
+      const selectedOption = prompt(`Select a value for ${customColumn.label}:\n\n${options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n')}\n\nEnter the number of your choice:`);
+      
+      if (selectedOption) {
+        const optionIndex = parseInt(selectedOption) - 1;
+        if (optionIndex >= 0 && optionIndex < options.length) {
+          handleUpdateCustomField(recordId, fieldName, options[optionIndex]);
+        }
+      }
+    } else {
+      // For text, number, and date - use prompt for simple editing
+      const inputType = fieldType === 'date' ? 'date' : fieldType === 'number' ? 'number' : 'text';
+      const promptValue = fieldType === 'date' && currentValue && currentValue !== '-' 
+        ? new Date(currentValue).toISOString().split('T')[0] 
+        : currentValue === '-' ? '' : currentValue;
+        
+      const newValue = prompt(`Enter ${fieldType} value:`, promptValue);
+      
+      if (newValue !== null) {
+        handleUpdateCustomField(recordId, fieldName, newValue);
+      }
+    }
+  };
+
+  const handleUpdateCustomField = async (recordId, fieldName, newValue) => {
+    try {
+      await updateRecordCustomFields(recordId, { [fieldName]: newValue });
+      // Refresh the records to show updated values
+      mutate();
+    } catch (error) {
+      console.error('Error updating custom field:', error);
+      alert('Failed to update field value');
+    }
+  };
+
   const renderTableCell = (record, columnKey) => {
-    const meta = columnMetadata[columnKey];
+    const meta = currentColumnMetadata[columnKey];
+    
+    // Return empty cell if metadata doesn't exist
+    if (!meta) {
+      console.warn(`No metadata found for column: ${columnKey}`);
+      return <td key={columnKey} className="px-4 py-3 text-gray-500">-</td>;
+    }
+    
     const [system, field] = columnKey.split('.');
+    
+    // Handle custom columns
+    if (system === 'custom') {
+      let value = '-';
+      try {
+        const customFields = record.customFields ? JSON.parse(record.customFields) : {};
+        value = customFields[field] || meta?.customColumn?.defaultValue || '-';
+        
+        // Handle boolean values
+        if (meta?.type === 'boolean' && typeof value === 'boolean') {
+          value = value ? 'Yes' : 'No';
+        }
+      } catch (error) {
+        console.warn('Error parsing custom fields:', error);
+        value = '-';
+      }
+
+      if (value === null || value === undefined || value === '') {
+        return <span className="text-gray-500 font-medium italic">-</span>;
+      }
+
+      // Render custom column based on type
+      switch (meta?.type) {
+        case 'boolean':
+          return (
+            <div className="flex items-center space-x-2">
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                value === 'Yes' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-gray-100 text-gray-800 border border-gray-200'
+              }`}>
+                {value}
+              </span>
+              <button
+                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
+                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Edit value"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        case 'date':
+          return (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-700 font-medium">
+                {value && value !== '-' ? new Date(value).toLocaleDateString('en-GB', { 
+                  day: '2-digit', 
+                  month: '2-digit', 
+                  year: 'numeric' 
+                }) : '-'}
+              </span>
+              <button
+                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
+                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Edit value"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        case 'number':
+          return (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-900 font-medium">{value}</span>
+              <button
+                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
+                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Edit value"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        case 'select':
+          return (
+            <div className="flex items-center space-x-2">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                {value}
+              </span>
+              <button
+                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
+                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Edit value"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            </div>
+          );
+        default: // text
+          return (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-900 font-medium">{value}</span>
+              <button
+                onClick={() => handleCustomFieldEdit(record.id, field, meta.type, value)}
+                className="p-1 text-gray-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Edit value"
+              >
+                <Edit3 className="w-3 h-3" />
+              </button>
+            </div>
+          );
+      }
+    }
     
     // Get value from record based on system and field mapping
     let value;
@@ -1045,7 +1267,14 @@ const SystemIntegrationDashboard = () => {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Link Status</th>
                   {getVisibleColumnsInOrder().map(columnKey => {
-                    const meta = columnMetadata[columnKey];
+                    const meta = currentColumnMetadata[columnKey];
+                    
+                    // Skip if metadata doesn't exist for this column
+                    if (!meta) {
+                      console.warn(`No metadata found for column: ${columnKey}`);
+                      return null;
+                    }
+                    
                     const getColorClass = (color) => {
                       switch(color) {
                         case 'green': return 'text-green-700';
@@ -1053,6 +1282,7 @@ const SystemIntegrationDashboard = () => {
                         case 'red': return 'text-red-700';
                         case 'gray': return 'text-gray-700';
                         case 'purple': return 'text-purple-700';
+                        case 'indigo': return 'text-indigo-700';
                         default: return 'text-gray-700';
                       }
                     };
@@ -1066,11 +1296,11 @@ const SystemIntegrationDashboard = () => {
                     };
                     
                     return (
-                      <th key={columnKey} className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color)} uppercase tracking-wider ${getColumnWidth(columnKey)}`}>
+                      <th key={columnKey} className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey)}`}>
                         {meta.label}
                       </th>
                     );
-                  })}
+                  }).filter(Boolean)}
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -1175,7 +1405,14 @@ const SystemIntegrationDashboard = () => {
                 ) : (
                   <div className="grid gap-3">
                     {getVisibleColumnsInOrder().map((columnKey, index) => {
-                      const meta = columnMetadata[columnKey];
+                      const meta = currentColumnMetadata[columnKey];
+                      
+                      // Skip if metadata doesn't exist for this column
+                      if (!meta) {
+                        console.warn(`No metadata found for column: ${columnKey}`);
+                        return null;
+                      }
+                      
                       const getColorClass = (color) => {
                         switch(color) {
                           case 'green': return 'text-green-700';
@@ -1183,6 +1420,7 @@ const SystemIntegrationDashboard = () => {
                           case 'red': return 'text-red-700';
                           case 'gray': return 'text-gray-700';
                           case 'purple': return 'text-purple-700';
+                          case 'indigo': return 'text-indigo-700';
                           default: return 'text-gray-700';
                         }
                       };
@@ -1230,7 +1468,7 @@ const SystemIntegrationDashboard = () => {
                           </div>
                           
                           <div className="flex-1">
-                            <span className={`text-sm font-medium ${getColorClass(meta.color)}`}>
+                            <span className={`text-sm font-medium ${getColorClass(meta.color || 'gray')}`}>
                               {meta.label}
                             </span>
                             <div className="text-xs text-gray-500 capitalize">
@@ -1251,7 +1489,7 @@ const SystemIntegrationDashboard = () => {
                           </button>
                         </div>
                       );
-                    })}
+                    }).filter(Boolean)}
                   </div>
                 )}
               </div>
@@ -1272,29 +1510,107 @@ const SystemIntegrationDashboard = () => {
       {/* Add Column Modal */}
       {showAddColumn && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Add Column</h3>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {showCustomColumnForm ? 'Create Custom Column' : 'Add Column'}
+              </h3>
               <button
-                onClick={() => setShowAddColumn(false)}
+                onClick={() => {
+                  setShowAddColumn(false);
+                  setShowCustomColumnForm(false);
+                  setEditingColumn(null);
+                }}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             
-            <div className="space-y-4 max-h-96 overflow-y-auto">
+            {showCustomColumnForm ? (
+              <CustomColumnForm 
+                onSave={handleSaveCustomColumn}
+                onCancel={() => setShowCustomColumnForm(false)}
+                existingColumn={editingColumn}
+              />
+            ) : (
+              <div>
+                <div className="space-y-4 max-h-96 overflow-y-auto">
               <p className="text-sm text-gray-800 mb-4">
                 Select a column to add to your table:
               </p>
               
-              {getAvailableColumns().length === 0 ? (
+              {getAvailableColumns().length === 0 && customColumns.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <p className="text-sm">All columns are already active</p>
                   <p className="text-xs mt-1">Remove columns from the main view to add different ones</p>
                 </div>
               ) : (
                 <>
+                  {/* Custom Columns Section */}
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => toggleSystemExpansion('custom')}
+                      className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-medium text-indigo-800">Custom Columns</h4>
+                        <span className="text-xs text-indigo-600 bg-indigo-200 px-2 py-0.5 rounded-full">
+                          {getAvailableColumns().filter(key => key.startsWith('custom.')).length}
+                        </span>
+                      </div>
+                      {expandedSystems.custom ? (
+                        <ChevronUp className="w-4 h-4 text-indigo-600" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-indigo-600" />
+                      )}
+                    </button>
+                    
+                    {expandedSystems.custom && (
+                      <div className="space-y-2 ml-4">
+                        {/* Existing custom columns that can be added */}
+                        {getAvailableColumns()
+                          .filter(key => key.startsWith('custom.'))
+                          .map(columnKey => {
+                            const meta = currentColumnMetadata[columnKey];
+                            return (
+                              <button
+                                key={columnKey}
+                                onClick={() => addColumn(columnKey)}
+                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-indigo-50 rounded-lg border border-indigo-100 transition-colors text-left"
+                              >
+                                <div>
+                                  <span className="text-sm font-medium text-indigo-700">
+                                    {meta.label}
+                                  </span>
+                                  <div className="text-xs text-indigo-600 capitalize">
+                                    {meta.type} • {meta.group}
+                                  </div>
+                                </div>
+                                <Plus className="w-4 h-4 text-indigo-600" />
+                              </button>
+                            );
+                          })}
+                        
+                        {/* Create new custom column button */}
+                        <button
+                          onClick={() => setShowCustomColumnForm(true)}
+                          className="w-full flex items-center justify-between p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg border border-indigo-600 transition-colors text-left"
+                        >
+                          <div>
+                            <span className="text-sm font-medium text-white">
+                              Create New Custom Column
+                            </span>
+                            <div className="text-xs text-indigo-200">
+                              Add a new custom field to your records
+                            </div>
+                          </div>
+                          <Plus className="w-4 h-4 text-white" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-3">
                     <button
                       onClick={() => toggleSystemExpansion('zendesk')}
@@ -1318,7 +1634,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('zendesk.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1364,7 +1680,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('jira.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1410,7 +1726,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('slack.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1456,7 +1772,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('github.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1502,7 +1818,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('salesforce.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1548,7 +1864,7 @@ const SystemIntegrationDashboard = () => {
                         {getAvailableColumns()
                           .filter(key => key.startsWith('teams.'))
                           .map(columnKey => {
-                            const meta = columnMetadata[columnKey];
+                            const meta = currentColumnMetadata[columnKey];
                             return (
                               <button
                                 key={columnKey}
@@ -1574,14 +1890,18 @@ const SystemIntegrationDashboard = () => {
               )}
             </div>
             
-            <div className="flex justify-end gap-3 mt-6">
-              <button
-                onClick={() => setShowAddColumn(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
+                {!showCustomColumnForm && (
+                  <div className="flex justify-end gap-3 mt-6">
+                    <button
+                      onClick={() => setShowAddColumn(false)}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
