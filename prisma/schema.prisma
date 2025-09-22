@@ -164,6 +164,7 @@ model DashboardConfig {
   columnOrder       String       @map("column_order")
   columnDisplayNames String?      @map("column_display_names")
   filters           String?
+  graphsExpanded    Boolean?     @default(true) @map("graphs_expanded")
   isDefault         Boolean      @default(false) @map("is_default")
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")

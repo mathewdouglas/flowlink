@@ -33,7 +33,8 @@ export default async function handler(req, res) {
             'zendesk.created_at'
           ],
           columnDisplayNames: {},
-          filters: {}
+          filters: {},
+          graphsExpanded: true
         });
       }
 
@@ -43,7 +44,8 @@ export default async function handler(req, res) {
         visibleColumns: JSON.parse(config.visibleColumns || '[]'),
         columnOrder: JSON.parse(config.columnOrder || '[]'),
         columnDisplayNames: config.columnDisplayNames ? JSON.parse(config.columnDisplayNames) : {},
-        filters: config.filters ? JSON.parse(config.filters) : {}
+        filters: config.filters ? JSON.parse(config.filters) : {},
+        graphsExpanded: config.graphsExpanded !== null ? config.graphsExpanded : true
       };
 
       res.status(200).json(parsedConfig);
@@ -54,7 +56,7 @@ export default async function handler(req, res) {
   } 
   if (req.method === 'POST') {
     try {
-      const { userId, organizationId, visibleColumns, columnOrder, columnDisplayNames, filters } = req.body;
+      const { userId, organizationId, visibleColumns, columnOrder, columnDisplayNames, filters, graphsExpanded } = req.body;
 
       const config = await prisma.dashboardConfig.upsert({
         where: {
@@ -68,7 +70,8 @@ export default async function handler(req, res) {
           visibleColumns: JSON.stringify(visibleColumns),
           columnOrder: JSON.stringify(columnOrder),
           columnDisplayNames: JSON.stringify(columnDisplayNames || {}),
-          filters: JSON.stringify(filters)
+          filters: JSON.stringify(filters),
+          graphsExpanded: graphsExpanded !== undefined ? graphsExpanded : true
         },
         create: {
           userId,
@@ -78,6 +81,7 @@ export default async function handler(req, res) {
           columnOrder: JSON.stringify(columnOrder),
           columnDisplayNames: JSON.stringify(columnDisplayNames || {}),
           filters: JSON.stringify(filters),
+          graphsExpanded: graphsExpanded !== undefined ? graphsExpanded : true,
           isDefault: true
         }
       });

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, CheckCircle, Clock, X, Link, Edit3, Eye, EyeOff, ArrowRight, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer } from 'recharts';
 import { useAllFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
 import { useCustomColumns } from '../hooks/useCustomColumns';
@@ -135,6 +136,7 @@ const SystemIntegrationDashboard = () => {
       setVisibleColumns(config.visibleColumns || []);
       setColumnOrder(config.columnOrder || []);
       setColumnDisplayNames(config.columnDisplayNames || {});
+      setGraphsExpanded(config.graphsExpanded !== false); // Default to true if not set
     } else {
       // Set default visible columns if no config exists
       const defaultColumns = [
@@ -144,6 +146,7 @@ const SystemIntegrationDashboard = () => {
       setVisibleColumns(defaultColumns);
       setColumnOrder(defaultColumns);
       setColumnDisplayNames({});
+      setGraphsExpanded(true); // Default to expanded
     }
   }, [config]);
 
@@ -354,6 +357,13 @@ const SystemIntegrationDashboard = () => {
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
   const [showConnectedSystems, setShowConnectedSystems] = useState(false);
+  const [graphsExpanded, setGraphsExpanded] = useState(true);
+
+  // Graph column selection state
+  const [statusChartColumn, setStatusChartColumn] = useState('zendesk.status');
+  const [priorityChartColumn, setPriorityChartColumn] = useState('zendesk.priority');
+  const [timeChartColumn, setTimeChartColumn] = useState('zendesk.created_at');
+  const [assigneeChartColumn, setAssigneeChartColumn] = useState('zendesk.assignee');
 
   // Integration status state
   const [integrationStatuses, setIntegrationStatuses] = useState({
@@ -415,6 +425,37 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
+  // Update chart column selections when visible columns change
+  useEffect(() => {
+    if (visibleColumns.length > 0) {
+      // If current selection is not visible, switch to first visible column
+      if (!visibleColumns.includes(statusChartColumn)) {
+        setStatusChartColumn(visibleColumns[0]);
+      }
+      if (!visibleColumns.includes(priorityChartColumn)) {
+        setPriorityChartColumn(visibleColumns[0]);
+      }
+      if (!visibleColumns.includes(timeChartColumn)) {
+        setTimeChartColumn(visibleColumns[0]);
+      }
+      if (!visibleColumns.includes(assigneeChartColumn)) {
+        setAssigneeChartColumn(visibleColumns[0]);
+      }
+    }
+  }, [visibleColumns, statusChartColumn, priorityChartColumn, timeChartColumn, assigneeChartColumn]);
+
+  // Toggle graphs expanded state
+  const toggleGraphsExpanded = () => {
+    const newExpanded = !graphsExpanded;
+    setGraphsExpanded(newExpanded);
+    if (config) {
+      saveConfig({
+        ...config,
+        graphsExpanded: newExpanded
+      });
+    }
+  };
+
   const navigateToTickets = (system) => {
     if (system === 'zendesk') {
       navigateToZendeskTickets();
@@ -437,7 +478,13 @@ const SystemIntegrationDashboard = () => {
 
   // Helper function to get field value from a record
   const getRecordFieldValue = (record, field) => {
-    switch (field) {
+    // Extract the actual field name from prefixed fields (e.g., 'zendesk.status' -> 'status')
+    let actualField = field;
+    if (field.includes('.')) {
+      actualField = field.split('.').pop(); // Get the last part after the dot
+    }
+    
+    switch (actualField) {
       case 'id':
       case 'key':
       case 'number':
@@ -750,6 +797,86 @@ const SystemIntegrationDashboard = () => {
         return sortDirection === 'asc' ? aValue - bValue : bValue - aValue;
       })
     : processedRecords;
+
+  // Analytics data for graphs
+  const analyticsData = useMemo(() => {
+    if (!processedRecords.length) return null;
+
+    // Status distribution (using selected column)
+    const statusCounts = {};
+    processedRecords.forEach(record => {
+      const status = getRecordFieldValue(record, statusChartColumn) || 'Unknown';
+      const statusStr = String(status);
+      statusCounts[statusStr] = (statusCounts[statusStr] || 0) + 1;
+    });
+    const statusData = Object.entries(statusCounts).map(([status, count]) => ({
+      name: status,
+      value: count,
+      percentage: Math.round((count / processedRecords.length) * 100)
+    }));
+
+    // Priority distribution (using selected column)
+    const priorityCounts = {};
+    processedRecords.forEach(record => {
+      const priority = getRecordFieldValue(record, priorityChartColumn) || 'Unknown';
+      const priorityStr = String(priority);
+      priorityCounts[priorityStr] = (priorityCounts[priorityStr] || 0) + 1;
+    });
+    const priorityData = Object.entries(priorityCounts)
+      .sort(([,a], [,b]) => b - a)
+      .map(([priority, count]) => ({
+        priority,
+        count,
+        percentage: Math.round((count / processedRecords.length) * 100)
+      }));
+
+    // Tickets created over time (last 30 days) - using selected column
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const dailyCounts = {};
+    processedRecords.forEach(record => {
+      const dateValue = getRecordFieldValue(record, timeChartColumn);
+      if (dateValue) {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime()) && date >= thirtyDaysAgo) {
+          const dateKey = date.toISOString().split('T')[0];
+          dailyCounts[dateKey] = (dailyCounts[dateKey] || 0) + 1;
+        }
+      }
+    });
+    
+    const timeData = Object.entries(dailyCounts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => ({
+        date: new Date(date).toLocaleDateString(),
+        tickets: count
+      }));
+
+    // Top assignees - using selected column
+    const assigneeCounts = {};
+    processedRecords.forEach(record => {
+      const assignee = getRecordFieldValue(record, assigneeChartColumn) || 'Unassigned';
+      const assigneeStr = String(assignee);
+      assigneeCounts[assigneeStr] = (assigneeCounts[assigneeStr] || 0) + 1;
+    });
+    
+    const assigneeData = Object.entries(assigneeCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([assignee, count]) => ({
+        assignee: assignee.length > 20 ? assignee.substring(0, 20) + '...' : assignee,
+        tickets: count
+      }));
+
+    return {
+      statusData,
+      priorityData,
+      timeData,
+      assigneeData,
+      totalTickets: processedRecords.length
+    };
+  }, [processedRecords, statusChartColumn, priorityChartColumn, timeChartColumn, assigneeChartColumn]);
 
   // Loading state
   if (isLoading) {
@@ -1718,6 +1845,160 @@ const SystemIntegrationDashboard = () => {
 
               </div>
             </div>
+          </div>
+        )}
+        
+        {/* Ticket Analytics Graphs */}
+        {analyticsData && analyticsData.totalTickets > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Ticket Analytics</h3>
+              <button
+                type="button"
+                onClick={toggleGraphsExpanded}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                {graphsExpanded ? (
+                  <>
+                    <ChevronUp className="w-4 h-4" />
+                    Collapse
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4" />
+                    Expand
+                  </>
+                )}
+              </button>
+            </div>
+            {graphsExpanded && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Status Distribution */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-medium text-gray-900">Status Distribution</h4>
+                  <select
+                    value={statusChartColumn}
+                    onChange={(e) => setStatusChartColumn(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    {Object.keys(currentColumnMetadata)
+                      .filter(columnKey => visibleColumns.includes(columnKey))
+                      .map(columnKey => (
+                      <option key={columnKey} value={columnKey}>
+                        {currentColumnMetadata[columnKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={analyticsData.statusData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                      label={({ name, percentage }) => `${name}: ${percentage}%`}
+                    >
+                      {analyticsData.statusData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'][index % 5]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Priority Distribution */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-medium text-gray-900">Priority Distribution</h4>
+                  <select
+                    value={priorityChartColumn}
+                    onChange={(e) => setPriorityChartColumn(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    {Object.keys(currentColumnMetadata)
+                      .filter(columnKey => visibleColumns.includes(columnKey))
+                      .map(columnKey => (
+                      <option key={columnKey} value={columnKey}>
+                        {currentColumnMetadata[columnKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={analyticsData.priorityData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="priority" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="count" fill="#3B82F6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Tickets Created Over Time */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-medium text-gray-900">Tickets Created (Last 30 Days)</h4>
+                  <select
+                    value={timeChartColumn}
+                    onChange={(e) => setTimeChartColumn(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    {Object.keys(currentColumnMetadata)
+                      .filter(columnKey => visibleColumns.includes(columnKey))
+                      .map(columnKey => (
+                      <option key={columnKey} value={columnKey}>
+                        {currentColumnMetadata[columnKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={analyticsData.timeData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="tickets" stroke="#10B981" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Top Assignees */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-md font-medium text-gray-900">Top Assignees</h4>
+                  <select
+                    value={assigneeChartColumn}
+                    onChange={(e) => setAssigneeChartColumn(e.target.value)}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+                  >
+                    {Object.keys(currentColumnMetadata)
+                      .filter(columnKey => visibleColumns.includes(columnKey))
+                      .map(columnKey => (
+                      <option key={columnKey} value={columnKey}>
+                        {currentColumnMetadata[columnKey].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={analyticsData.assigneeData} layout="horizontal">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="assignee" type="category" width={80} />
+                    <Tooltip />
+                    <Bar dataKey="tickets" fill="#8B5CF6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            )}
           </div>
         )}
         
