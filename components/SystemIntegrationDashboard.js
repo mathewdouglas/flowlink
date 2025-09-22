@@ -288,11 +288,37 @@ const SystemIntegrationDashboard = () => {
 
     // Add Zendesk custom fields to metadata
     zendeskCustomFieldIds.forEach(fieldId => {
+      // Determine if this field should be treated as boolean by checking values
+      let isBooleanField = false;
+      const seenValues = new Set();
+      
+      records.forEach(record => {
+        if (record.sourceSystem === 'zendesk' && record.customFields) {
+          try {
+            const customFields = record.customFields;
+            const value = customFields[fieldId];
+            if (value !== null && value !== undefined && value !== '') {
+              seenValues.add(value);
+            }
+          } catch (error) {
+            // Ignore parsing errors
+          }
+        }
+      });
+      
+      // If all non-null values are boolean, treat as boolean field
+      if (seenValues.size > 0) {
+        const allBoolean = Array.from(seenValues).every(value => typeof value === 'boolean');
+        if (allBoolean) {
+          isBooleanField = true;
+        }
+      }
+      
       zendeskCustomFieldMetadata[`zendesk.custom_${fieldId}`] = {
         label: columnDisplayNames[`zendesk.custom_${fieldId}`] || `Custom Field ${fieldId}`,
         color: 'green',
         group: 'zendesk',
-        type: 'text',
+        type: isBooleanField ? 'boolean' : 'text',
         isZendeskCustom: true,
         fieldId: fieldId
       };
@@ -452,7 +478,7 @@ const SystemIntegrationDashboard = () => {
           const fieldId = field.substring(15); // Remove 'zendesk.custom_' prefix
           try {
             const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldId] || '';
+            return customFields[fieldId] !== undefined && customFields[fieldId] !== null ? customFields[fieldId] : '';
           } catch {
             return '';
           }
@@ -462,7 +488,7 @@ const SystemIntegrationDashboard = () => {
           const fieldName = field.substring(8); // Remove 'zendesk.' prefix
           try {
             const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldName] || '';
+            return customFields[fieldName] !== undefined && customFields[fieldName] !== null ? customFields[fieldName] : '';
           } catch {
             return '';
           }
@@ -472,7 +498,7 @@ const SystemIntegrationDashboard = () => {
           const fieldId = field.substring(7); // Remove 'custom_' prefix
           try {
             const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldId] || '';
+            return customFields[fieldId] !== undefined && customFields[fieldId] !== null ? customFields[fieldId] : '';
           } catch {
             return '';
           }
@@ -482,7 +508,8 @@ const SystemIntegrationDashboard = () => {
           const fieldName = field.substring(7); // Remove 'custom.' prefix
           try {
             const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldName] || '';
+            const value = customFields[fieldName];
+            return value !== undefined && value !== null ? value : '';
           } catch {
             return '';
           }
@@ -516,19 +543,36 @@ const SystemIntegrationDashboard = () => {
     // Status filter  
     const matchesStatus = filterStatusColumn === 'all' || filterStatusValue === 'all' || (() => {
       const [system, field] = filterStatusColumn.split('.');
+      const columnMeta = currentColumnMetadata[filterStatusColumn];
+      const isBooleanColumn = columnMeta && columnMeta.type === 'boolean';
       
       let recordStatus;
-      if (system === record.sourceSystem) {
+      if (system === record.sourceSystem || system === 'custom') {
         recordStatus = getRecordFieldValue(record, field);
       } else {
-        // Check linked records
-        const linkedRecord = record.linkedRecords?.find(lr => lr.sourceSystem === system);
-        if (linkedRecord) {
-          recordStatus = getRecordFieldValue(linkedRecord, field);
+        // Check linked records using the same logic as getAvailableStatusValues
+        const safeLinks = Array.isArray(links) ? links : [];
+        const relevantLink = safeLinks.find(link => 
+          (link.sourceRecordId === record.id && link.targetRecord?.sourceSystem === system) ||
+          (link.targetRecordId === record.id && link.sourceRecord?.sourceSystem === system)
+        );
+        
+        if (relevantLink) {
+          const linkedRecord = relevantLink.sourceRecordId === record.id 
+            ? relevantLink.targetRecord 
+            : relevantLink.sourceRecord;
+          if (linkedRecord) {
+            recordStatus = getRecordFieldValue(linkedRecord, field);
+          }
         }
       }
       
-      return recordStatus?.toLowerCase() === filterStatusValue.toLowerCase();
+      // For boolean columns, treat undefined/null as false
+      if (isBooleanColumn && filterStatusValue === 'false') {
+        return recordStatus === false || recordStatus === null || recordStatus === undefined;
+      }
+      
+      return String(recordStatus)?.toLowerCase() === filterStatusValue.toLowerCase();
     })();
 
     // System filter (handled by selectedSystem already)
@@ -592,27 +636,25 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
-  // Get available status columns for filtering
+  // Get available filterable columns (status, state, and boolean columns)
   const getAvailableStatusColumns = () => {
     const statusColumns = [];
-    
+
     // Add "All Statuses" option
     statusColumns.push({ key: 'all', label: 'All Status Columns' });
-    
-    // Check visible columns for status fields
+
+    // Check visible columns for status, state, and boolean fields
     getVisibleColumnsInOrder().forEach(columnKey => {
       const [system, field] = columnKey.split('.');
-      if (field === 'status' || field === 'state') {
-        const meta = currentColumnMetadata[columnKey];
-        if (meta) {
-          statusColumns.push({
-            key: columnKey,
-            label: `${meta.label} (${system})`
-          });
-        }
+      const meta = currentColumnMetadata[columnKey];
+      if (meta && (field === 'status' || field === 'state' || meta.type === 'boolean')) {
+        statusColumns.push({
+          key: columnKey,
+          label: `${meta.label} (${system})`
+        });
       }
     });
-    
+
     return statusColumns;
   };
 
@@ -629,7 +671,7 @@ const SystemIntegrationDashboard = () => {
     records.forEach(record => {
       let statusValue;
       
-      if (system === record.sourceSystem) {
+      if (system === record.sourceSystem || system === 'custom') {
         statusValue = getRecordFieldValue(record, field);
       } else {
         // Check if this record has a linked record from the target system
@@ -649,14 +691,22 @@ const SystemIntegrationDashboard = () => {
         }
       }
       
-      if (statusValue && statusValue !== '-') {
+      if (statusValue !== null && statusValue !== undefined && statusValue !== '-') {
         statusValues.add(statusValue);
       }
     });
 
     const values = [{ key: 'all', label: 'All Statuses' }];
+    
+    // For boolean columns, always include "false" since blank fields count as false
+    const columnMeta = currentColumnMetadata[filterStatusColumn];
+    if (columnMeta && columnMeta.type === 'boolean') {
+      statusValues.add(false);
+    }
+    
     Array.from(statusValues).sort().forEach(value => {
-      values.push({ key: value, label: value });
+      const stringValue = String(value);
+      values.push({ key: stringValue, label: stringValue });
     });
     
     return values;
