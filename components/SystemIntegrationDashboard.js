@@ -3,12 +3,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, CheckCircle, Clock, X, Link, Edit3, Eye, EyeOff, ArrowRight, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, LineChart, Line, ResponsiveContainer } from 'recharts';
 import { useAllFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
 import { useCustomColumns } from '../hooks/useCustomColumns';
 import ZendeskSetupForm from './ZendeskSetupForm';
 import CustomColumnForm from './CustomColumnForm';
+import AnalyticsCharts from './AnalyticsCharts';
+import RecordTable from './RecordTable';
+import ColumnManager from './ColumnManager';
 
   // Utility function to truncate long text with ellipsis
 const truncateText = (text, maxLength = 50) => {
@@ -63,7 +65,7 @@ const SystemIntegrationDashboard = () => {
           // Save the updated display names if any were added
           if (Object.keys(newDisplayNames).length > Object.keys(columnDisplayNames).length) {
             setColumnDisplayNames(newDisplayNames);
-            autoSaveConfig(visibleColumns, columnOrder, newDisplayNames);
+            autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
           }
         }
         
@@ -150,6 +152,7 @@ const SystemIntegrationDashboard = () => {
   const [visibleColumns, setVisibleColumns] = useState([]);
   const [columnOrder, setColumnOrder] = useState([]);
   const [columnDisplayNames, setColumnDisplayNames] = useState({});
+  const [graphsExpanded, setGraphsExpanded] = useState(true);
 
   // Update local state when config loads
   useEffect(() => {
@@ -172,22 +175,27 @@ const SystemIntegrationDashboard = () => {
   }, [config]);
 
   // Auto-save configuration when columns change
-  const autoSaveConfig = useCallback(async (columns, order, displayNames) => {
+  const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true) => {
     try {
-      setConfigSaveStatus('saving');
+      if (showStatus) setConfigSaveStatus('saving');
       await saveConfig({
         visibleColumns: columns,
         columnOrder: order,
         columnDisplayNames: displayNames,
+        graphsExpanded: expanded !== undefined ? expanded : true,
         filters: {} // Add filter state here when implemented
       });
-      setConfigSaveStatus('saved');
-      // Clear the saved status after 2 seconds
-      setTimeout(() => setConfigSaveStatus(''), 2000);
+      if (showStatus) {
+        setConfigSaveStatus('saved');
+        // Clear the saved status after 2 seconds
+        setTimeout(() => setConfigSaveStatus(''), 2000);
+      }
     } catch (error) {
       console.error('Failed to auto-save configuration:', error);
-      setConfigSaveStatus('error');
-      setTimeout(() => setConfigSaveStatus(''), 3000);
+      if (showStatus) {
+        setConfigSaveStatus('error');
+        setTimeout(() => setConfigSaveStatus(''), 3000);
+      }
     }
   }, [saveConfig]);
 
@@ -378,13 +386,13 @@ const SystemIntegrationDashboard = () => {
   const [isSystemsExpanded, setIsSystemsExpanded] = useState(true);
   const [configSaveStatus, setConfigSaveStatus] = useState(''); // 'saving', 'saved', 'error'
   const [showConnectedSystems, setShowConnectedSystems] = useState(false);
-  const [graphsExpanded, setGraphsExpanded] = useState(true);
 
-  // Graph column selection state
-  const [statusChartColumn, setStatusChartColumn] = useState('zendesk.status');
-  const [priorityChartColumn, setPriorityChartColumn] = useState('zendesk.priority');
-  const [timeChartColumn, setTimeChartColumn] = useState('zendesk.created_at');
-  const [assigneeChartColumn, setAssigneeChartColumn] = useState('zendesk.assignee');
+  // Handle graphs toggle with auto-save
+  const handleGraphsToggle = useCallback(() => {
+    const newExpanded = !graphsExpanded;
+    setGraphsExpanded(newExpanded);
+    autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, newExpanded, false);
+  }, [graphsExpanded, visibleColumns, columnOrder, columnDisplayNames, autoSaveConfig]);
 
   // Integration status state
   const [integrationStatuses, setIntegrationStatuses] = useState({
@@ -443,37 +451,6 @@ const SystemIntegrationDashboard = () => {
           [system]: { status: 'error', connected: false, message: 'Network error' }
         }));
       }
-    }
-  };
-
-  // Update chart column selections when visible columns change
-  useEffect(() => {
-    if (visibleColumns.length > 0) {
-      // If current selection is not visible, switch to first visible column
-      if (!visibleColumns.includes(statusChartColumn)) {
-        setStatusChartColumn(visibleColumns[0]);
-      }
-      if (!visibleColumns.includes(priorityChartColumn)) {
-        setPriorityChartColumn(visibleColumns[0]);
-      }
-      if (!visibleColumns.includes(timeChartColumn)) {
-        setTimeChartColumn(visibleColumns[0]);
-      }
-      if (!visibleColumns.includes(assigneeChartColumn)) {
-        setAssigneeChartColumn(visibleColumns[0]);
-      }
-    }
-  }, [visibleColumns, statusChartColumn, priorityChartColumn, timeChartColumn, assigneeChartColumn]);
-
-  // Toggle graphs expanded state
-  const toggleGraphsExpanded = () => {
-    const newExpanded = !graphsExpanded;
-    setGraphsExpanded(newExpanded);
-    if (config) {
-      saveConfig({
-        ...config,
-        graphsExpanded: newExpanded
-      });
     }
   };
 
@@ -819,86 +796,6 @@ const SystemIntegrationDashboard = () => {
       })
     : processedRecords;
 
-  // Analytics data for graphs
-  const analyticsData = useMemo(() => {
-    if (!processedRecords.length) return null;
-
-    // Status distribution (using selected column)
-    const statusCounts = {};
-    processedRecords.forEach(record => {
-      const status = getRecordFieldValue(record, statusChartColumn) || 'Unknown';
-      const statusStr = String(status);
-      statusCounts[statusStr] = (statusCounts[statusStr] || 0) + 1;
-    });
-    const statusData = Object.entries(statusCounts).map(([status, count]) => ({
-      name: status,
-      value: count,
-      percentage: Math.round((count / processedRecords.length) * 100)
-    }));
-
-    // Priority distribution (using selected column)
-    const priorityCounts = {};
-    processedRecords.forEach(record => {
-      const priority = getRecordFieldValue(record, priorityChartColumn) || 'Unknown';
-      const priorityStr = String(priority);
-      priorityCounts[priorityStr] = (priorityCounts[priorityStr] || 0) + 1;
-    });
-    const priorityData = Object.entries(priorityCounts)
-      .sort(([,a], [,b]) => b - a)
-      .map(([priority, count]) => ({
-        priority,
-        count,
-        percentage: Math.round((count / processedRecords.length) * 100)
-      }));
-
-    // Tickets created over time (last 30 days) - using selected column
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const dailyCounts = {};
-    processedRecords.forEach(record => {
-      const dateValue = getRecordFieldValue(record, timeChartColumn);
-      if (dateValue) {
-        const date = new Date(dateValue);
-        if (!isNaN(date.getTime()) && date >= thirtyDaysAgo) {
-          const dateKey = date.toISOString().split('T')[0];
-          dailyCounts[dateKey] = (dailyCounts[dateKey] || 0) + 1;
-        }
-      }
-    });
-    
-    const timeData = Object.entries(dailyCounts)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, count]) => ({
-        date: new Date(date).toLocaleDateString(),
-        tickets: count
-      }));
-
-    // Top assignees - using selected column
-    const assigneeCounts = {};
-    processedRecords.forEach(record => {
-      const assignee = getRecordFieldValue(record, assigneeChartColumn) || 'Unassigned';
-      const assigneeStr = String(assignee);
-      assigneeCounts[assigneeStr] = (assigneeCounts[assigneeStr] || 0) + 1;
-    });
-    
-    const assigneeData = Object.entries(assigneeCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 10)
-      .map(([assignee, count]) => ({
-        assignee: assignee.length > 20 ? assignee.substring(0, 20) + '...' : assignee,
-        tickets: count
-      }));
-
-    return {
-      statusData,
-      priorityData,
-      timeData,
-      assigneeData,
-      totalTickets: processedRecords.length
-    };
-  }, [processedRecords, statusChartColumn, priorityChartColumn, timeChartColumn, assigneeChartColumn]);
-
   // Loading state
   if (isLoading) {
     return (
@@ -1059,7 +956,7 @@ const SystemIntegrationDashboard = () => {
     }
     
     // Auto-save the configuration
-    autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder, columnDisplayNames);
+    autoSaveConfig(newVisibleColumns, newColumnOrder || columnOrder, columnDisplayNames, graphsExpanded);
   };
 
   // Inline editing functions for custom columns
@@ -1156,7 +1053,7 @@ const SystemIntegrationDashboard = () => {
       [newOrder[currentIndex], newOrder[newIndex]] = [newOrder[newIndex], newOrder[currentIndex]];
       
       // Auto-save the configuration
-      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames);
+      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames, graphsExpanded);
       
       return newOrder;
     });
@@ -1194,7 +1091,7 @@ const SystemIntegrationDashboard = () => {
       newOrder.splice(dropIndex, 0, draggedItem);
       
       // Auto-save the configuration
-      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames);
+      autoSaveConfig(visibleColumns, newOrder, columnDisplayNames, graphsExpanded);
       
       return newOrder;
     });
@@ -1228,7 +1125,7 @@ const SystemIntegrationDashboard = () => {
       }
       
       // Auto-save the configuration
-      autoSaveConfig(newVisibleColumns, newColumnOrder, columnDisplayNames);
+      autoSaveConfig(newVisibleColumns, newColumnOrder, columnDisplayNames, graphsExpanded);
     }
     setShowAddColumn(false);
   };
@@ -1238,7 +1135,7 @@ const SystemIntegrationDashboard = () => {
     setVisibleColumns(newVisibleColumns);
     
     // Auto-save the configuration
-    autoSaveConfig(newVisibleColumns, columnOrder, columnDisplayNames);
+    autoSaveConfig(newVisibleColumns, columnOrder, columnDisplayNames, graphsExpanded);
   };
 
   const toggleSystemExpansion = (systemKey) => {
@@ -1294,7 +1191,7 @@ const SystemIntegrationDashboard = () => {
       };
       setColumnDisplayNames(newDisplayNames);
       // Auto-save the configuration with the new display names
-      autoSaveConfig(visibleColumns, columnOrder, newDisplayNames);
+      autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
     }
     setEditingDisplayName(null);
     setDisplayNameInput('');
@@ -1870,235 +1767,14 @@ const SystemIntegrationDashboard = () => {
         )}
         
         {/* Ticket Analytics Graphs */}
-        {analyticsData && analyticsData.totalTickets > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Ticket Analytics</h3>
-              <button
-                type="button"
-                onClick={toggleGraphsExpanded}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
-              >
-                {graphsExpanded ? (
-                  <>
-                    <ChevronUp className="w-4 h-4" />
-                    Collapse
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-4 h-4" />
-                    Expand
-                  </>
-                )}
-              </button>
-            </div>
-            {graphsExpanded && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Status Distribution */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">
-                    {currentColumnMetadata[statusChartColumn]?.label || 'Status'} Distribution
-                  </h4>
-                  <div className="relative">
-                    <select
-                      value={statusChartColumn}
-                      onChange={(e) => setStatusChartColumn(e.target.value)}
-                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                    >
-                      {Object.keys(currentColumnMetadata)
-                        .filter(columnKey => visibleColumns.includes(columnKey))
-                        .map(columnKey => (
-                        <option key={columnKey} value={columnKey}>
-                          {currentColumnMetadata[columnKey].label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={analyticsData.statusData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                      label={({ name, percentage }) => `${name}: ${percentage}%`}
-                    >
-                      {analyticsData.statusData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'][index % 5]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={(value, name) => [
-                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
-                        name
-                      ]}
-                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Priority Distribution */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">
-                    {currentColumnMetadata[priorityChartColumn]?.label || 'Priority'} Distribution
-                  </h4>
-                  <div className="relative">
-                    <select
-                      value={priorityChartColumn}
-                      onChange={(e) => setPriorityChartColumn(e.target.value)}
-                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                    >
-                      {Object.keys(currentColumnMetadata)
-                        .filter(columnKey => visibleColumns.includes(columnKey))
-                        .map(columnKey => (
-                        <option key={columnKey} value={columnKey}>
-                          {currentColumnMetadata[columnKey].label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={analyticsData.priorityData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="priority" />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value, name) => [
-                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
-                        'Count'
-                      ]}
-                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#3B82F6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Tickets Created Over Time */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">
-                    {currentColumnMetadata[timeChartColumn]?.label || 'Time'} Analysis (Last 30 Days)
-                  </h4>
-                  <div className="relative">
-                    <select
-                      value={timeChartColumn}
-                      onChange={(e) => setTimeChartColumn(e.target.value)}
-                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                    >
-                      {Object.keys(currentColumnMetadata)
-                        .filter(columnKey => visibleColumns.includes(columnKey))
-                        .map(columnKey => (
-                        <option key={columnKey} value={columnKey}>
-                          {currentColumnMetadata[columnKey].label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={analyticsData.timeData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip 
-                      formatter={(value, name) => [
-                        `${value} tickets`,
-                        'Count'
-                      ]}
-                      labelFormatter={(label) => `Date: ${label}`}
-                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
-                    <Line type="monotone" dataKey="tickets" stroke="#10B981" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Top Assignees */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">
-                    Top {currentColumnMetadata[assigneeChartColumn]?.label || 'Assignees'}
-                  </h4>
-                  <div className="relative">
-                    <select
-                      value={assigneeChartColumn}
-                      onChange={(e) => setAssigneeChartColumn(e.target.value)}
-                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                    >
-                      {Object.keys(currentColumnMetadata)
-                        .filter(columnKey => visibleColumns.includes(columnKey))
-                        .map(columnKey => (
-                        <option key={columnKey} value={columnKey}>
-                          {currentColumnMetadata[columnKey].label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                      ▼
-                    </span>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={analyticsData.assigneeData} layout="horizontal">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="assignee" type="category" width={80} />
-                    <Tooltip 
-                      formatter={(value, name) => [
-                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
-                        'Count'
-                      ]}
-                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
-                      contentStyle={{ 
-                        backgroundColor: 'white', 
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                      }}
-                    />
-                    <Bar dataKey="tickets" fill="#8B5CF6" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            )}
-          </div>
-        )}
+        <AnalyticsCharts 
+          processedRecords={processedRecords}
+          currentColumnMetadata={currentColumnMetadata}
+          visibleColumns={visibleColumns}
+          getRecordFieldValue={getRecordFieldValue}
+          graphsExpanded={graphsExpanded}
+          setGraphsExpanded={handleGraphsToggle}
+        />
         
         {/* Field Mappings Overview */}
         <div className="mb-6">
@@ -2144,869 +1820,113 @@ const SystemIntegrationDashboard = () => {
           </div>
         </div>
 
-        {/* Filters and Search */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search across all linked records..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
-                />
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <div className="relative">
-                <select
-                  value={filterSystem}
-                  onChange={(e) => setFilterSystem(e.target.value)}
-                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                >
-                <option value="all">All Records</option>
-                <option value="linked">Linked Records</option>
-                <option value="unlinked">Unlinked Records</option>
-                </select>
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  ▼
-                </span>
-              </div>
-              <div className="relative">
-                <select
-                  value={filterStatusColumn}
-                  onChange={(e) => {
-                    setFilterStatusColumn(e.target.value);
-                    setFilterStatusValue('all'); // Reset status value when column changes
-                  }}
-                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
-                >
-                  {getAvailableStatusColumns().map(column => (
-                    <option key={column.key} value={column.key}>
-                      {column.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  ▼
-                </span>
-              </div>
-              <div className="relative">
-                <select
-                  value={filterStatusValue}
-                  onChange={(e) => setFilterStatusValue(e.target.value)}
-                  disabled={filterStatusColumn === 'all'}
-                  className="appearance-none px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white disabled:bg-gray-100 disabled:text-gray-500"
-                >
-                  {getAvailableStatusValues().map(status => (
-                    <option key={status.key} value={status.key}>
-                      {status.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
-                  ▼
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Unified Linked Table */}
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none"
-                    onClick={() => handleSort('linkStatus')}
-                  >
-                    Link Status
-                    {getSortIndicator('linkStatus')}
-                  </th>
-                  {getVisibleColumnsInOrder().map(columnKey => {
-                    const meta = currentColumnMetadata[columnKey];
-                    
-                    // Skip if metadata doesn't exist for this column
-                    if (!meta) {
-                      console.warn(`No metadata found for column: ${columnKey}`);
-                      return null;
-                    }
-                    
-                    const getColorClass = (color) => {
-                      switch(color) {
-                        case 'green': return 'text-green-700';
-                        case 'blue': return 'text-blue-700';
-                        case 'red': return 'text-red-700';
-                        case 'gray': return 'text-gray-700';
-                        case 'purple': return 'text-purple-700';
-                        case 'indigo': return 'text-indigo-700';
-                        default: return 'text-gray-700';
-                      }
-                    };
-                    
-                    const getColumnWidth = (columnKey) => {
-                      const [, field] = columnKey.split('.');
-                      if (field === 'subject' || field === 'summary' || field === 'title' || field === 'description') {
-                        return 'max-w-xs'; // Max width for text-heavy columns
-                      }
-                      return '';
-                    };
-                    
-                    return (
-                      <th 
-                        key={columnKey} 
-                        className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey)} cursor-pointer hover:bg-gray-100 select-none`}
-                        onClick={() => handleSort(columnKey)}
-                      >
-                        {meta.label}
-                        {getSortIndicator(columnKey)}
-                      </th>
-                    );
-                  }).filter(Boolean)}
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {linkedRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50 group">
-                    <td className="px-4 py-2 whitespace-nowrap align-middle">
-                      {record.hasLinks ? (
-                        <div className="flex items-center gap-2">
-                          <Link className="w-4 h-4 text-green-500" />
-                          <span className="text-xs text-green-600 font-medium">
-                            Linked ({record.linkedRecords.length})
-                          </span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <X className="w-4 h-4 text-gray-500" />
-                          <span className="text-xs text-gray-700 font-medium">Unlinked</span>
-                        </div>
-                      )}
-                    </td>
-                    {getVisibleColumnsInOrder().map(columnKey => {
-                      const cellRecord = getCellRecordForColumn(record, columnKey);
-                      const [, field] = columnKey.split('.');
-                      const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
-                      const cellClass = isTextColumn 
-                        ? "px-4 py-2 align-middle max-w-xs group" 
-                        : "px-4 py-2 whitespace-nowrap align-middle group";
-                      
-                      return (
-                        <td key={columnKey} className={cellClass}>
-                          {renderTableCell(cellRecord, columnKey)}
-                        </td>
-                      );
-                    })}
-                    <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-middle">
-                      <div className="flex items-center gap-2">
-                        <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200" title="Open in source system">
-                          <ExternalLink className="w-4 h-4" />
-                        </button>
-                        <button className="text-gray-600 hover:text-gray-800 transition-colors duration-200" title="Configure record">
-                          <Settings className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-gray-50 border-t border-gray-200">
-                <tr>
-                  <td colSpan={getVisibleColumnsInOrder().length + 2} className="px-4 py-3 text-sm text-gray-700 font-medium">
-                    Total: {linkedRecords.length} record{linkedRecords.length !== 1 ? 's' : ''}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        {linkedRecords.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-500">No records found matching your criteria.</p>
-          </div>
-        )}
+        {/* Records Table */}
+        <RecordTable 
+          // Data
+          linkedRecords={linkedRecords}
+          currentColumnMetadata={currentColumnMetadata}
+          
+          // Filtering and search
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          filterSystem={filterSystem}
+          setFilterSystem={setFilterSystem}
+          filterStatusColumn={filterStatusColumn}
+          setFilterStatusColumn={setFilterStatusColumn}
+          filterStatusValue={filterStatusValue}
+          setFilterStatusValue={setFilterStatusValue}
+          
+          // Sorting
+          sortColumn={sortColumn}
+          sortDirection={sortDirection}
+          handleSort={handleSort}
+          getSortIndicator={getSortIndicator}
+          
+          // Columns
+          getVisibleColumnsInOrder={getVisibleColumnsInOrder}
+          
+          // Table cell rendering
+          renderTableCell={renderTableCell}
+          getCellRecordForColumn={getCellRecordForColumn}
+          
+          // Editing
+          editingCell={editingCell}
+          setEditingCell={setEditingCell}
+          editingValue={editingValue}
+          setEditingValue={setEditingValue}
+          isSavingEdit={isSavingEdit}
+          startEditing={startEditing}
+          saveCustomFieldEdit={saveCustomFieldEdit}
+          
+          // Utility functions
+          getCustomFields={getCustomFields}
+          getStatusColor={getStatusColor}
+          getSystemColor={getSystemColor}
+          
+          // Available options for filters
+          getAvailableStatusColumns={getAvailableStatusColumns}
+          getAvailableStatusValues={getAvailableStatusValues}
+          
+          // Handle key press for editing
+          handleKeyPress={handleKeyPress}
+        />
       </div>
 
-      {/* Column Configuration Modal */}
-      {showColumnConfig && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Configure Columns</h3>
-              <button
-                onClick={() => setShowColumnConfig(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              <div className="flex items-center justify-between mb-6">
-                <p className="text-base text-gray-800">
-                  Manage your active columns and their order:
-                </p>
-                <button
-                  onClick={() => setShowAddColumn(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                >
-                  <Plus className="w-5 h-5" />
-                  Add Column
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <h4 className="text-base font-medium text-gray-900 mb-4 flex items-center gap-2">
-                  <GripVertical className="w-5 h-5" />
-                  Active Columns ({getVisibleColumnsInOrder().length})
-                </h4>
-                <p className="text-sm text-gray-600 mb-6">
-                  Drag items to reorder columns, or use the arrow buttons. Click the X to remove columns.
-                </p>
-                
-                {getVisibleColumnsInOrder().length === 0 ? (
-                  <div className="text-center py-12 text-gray-500">
-                    <p className="text-lg">No active columns</p>
-                    <p className="text-sm mt-2">Click &quot;Add Column&quot; to get started</p>
-                  </div>
-                ) : (
-                  <div className="grid gap-3">
-                    {getVisibleColumnsInOrder().map((columnKey, index) => {
-                      const meta = currentColumnMetadata[columnKey];
-                      
-                      // Skip if metadata doesn't exist for this column
-                      if (!meta) {
-                        console.warn(`No metadata found for column: ${columnKey}`);
-                        return null;
-                      }
-                      
-                      const getColorClass = (color) => {
-                        switch(color) {
-                          case 'green': return 'text-green-700';
-                          case 'blue': return 'text-blue-700';
-                          case 'red': return 'text-red-700';
-                          case 'gray': return 'text-gray-700';
-                          case 'purple': return 'text-purple-700';
-                          case 'indigo': return 'text-indigo-700';
-                          default: return 'text-gray-700';
-                        }
-                      };
-                      const isDragging = draggedColumn === columnKey;
-                      const isDragOver = dragOverIndex === index;
-                      
-                      return (
-                        <div
-                          key={columnKey}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, columnKey)}
-                          onDragOver={(e) => handleDragOver(e, index)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, index)}
-                          onDragEnd={handleDragEnd}
-                          className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all cursor-move ${
-                            isDragging 
-                              ? 'bg-blue-100 border-blue-300 opacity-50 scale-105' 
-                              : isDragOver
-                              ? 'bg-green-100 border-green-300 border-dashed'
-                              : 'bg-gray-100 border-transparent hover:bg-gray-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-center w-6 h-6 text-gray-400 hover:text-gray-600">
-                            <GripVertical className="w-4 h-4" />
-                          </div>
-                          
-                          <div className="flex flex-col gap-1">
-                            <button
-                              onClick={() => moveColumn(columnKey, 'up')}
-                              disabled={index === 0}
-                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Move up"
-                            >
-                              <ChevronUp className="w-3 h-3" />
-                            </button>
-                            <button
-                              onClick={() => moveColumn(columnKey, 'down')}
-                              disabled={index === getVisibleColumnsInOrder().length - 1}
-                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Move down"
-                            >
-                              <ChevronDown className="w-3 h-3" />
-                            </button>
-                          </div>
-                          
-                          <div className="flex-1">
-                            <span className={`text-sm font-medium ${getColorClass(meta.color || 'gray')}`}>
-                              {meta.label}
-                            </span>
-                            <div className="text-xs text-gray-500 capitalize">
-                              {meta.group}
-                            </div>
-                          </div>
-                          
-                          <div className="text-xs text-gray-400 font-mono bg-gray-200 px-2 py-1 rounded">
-                            #{index + 1}
-                          </div>
-                          
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                              title="Edit display name"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => removeColumn(columnKey)}
-                              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                              title="Remove column"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    }).filter(Boolean)}
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            {/* Display Name Editing */}
-            {editingDisplayName && (
-              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-800 mb-3">Edit Display Name</h4>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={displayNameInput}
-                    onChange={(e) => setDisplayNameInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveDisplayName();
-                      if (e.key === 'Escape') cancelDisplayNameEdit();
-                    }}
-                    className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    placeholder="Enter display name"
-                    autoFocus
-                  />
-                  <button
-                    onClick={saveDisplayName}
-                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={cancelDisplayNameEdit}
-                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <p className="text-xs text-blue-600 mt-2">
-                  This will change how the column appears in the table header.
-                </p>
-              </div>
-            )}
-            
-            <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
-              <button
-                onClick={() => setShowColumnConfig(false)}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Column Modal */}
-      {showAddColumn && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {showCustomColumnForm ? 'Create Custom Column' : 'Add Column'}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowAddColumn(false);
-                  setShowCustomColumnForm(false);
-                  setEditingColumn(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            
-            {showCustomColumnForm ? (
-              <CustomColumnForm 
-                onSave={handleSaveCustomColumn}
-                onCancel={() => setShowCustomColumnForm(false)}
-                existingColumn={editingColumn}
-              />
-            ) : (
-              <div>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
-              <p className="text-sm text-gray-800 mb-4">
-                Select a column to add to your table:
-              </p>
-              
-              {getAvailableColumns().length === 0 && customColumns.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p className="text-sm">All columns are already active</p>
-                  <p className="text-xs mt-1">Remove columns from the main view to add different ones</p>
-                </div>
-              ) : (
-                <>
-                  {/* Custom Columns Section */}
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('custom')}
-                      className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-indigo-800">Custom Columns</h4>
-                        <span className="text-xs text-indigo-600 bg-indigo-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('custom.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.custom ? (
-                        <ChevronUp className="w-4 h-4 text-indigo-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-indigo-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.custom && (
-                      <div className="space-y-2 ml-4">
-                        {/* Existing custom columns that can be added */}
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('custom.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <button
-                                key={columnKey}
-                                onClick={() => addColumn(columnKey)}
-                                className="w-full flex items-center justify-between p-3 bg-white hover:bg-indigo-50 rounded-lg border border-indigo-100 transition-colors text-left"
-                              >
-                                <div>
-                                  <span className="text-sm font-medium text-indigo-700">
-                                    {meta.label}
-                                  </span>
-                                  <div className="text-xs text-indigo-600 capitalize">
-                                    {meta.type} • {meta.group}
-                                  </div>
-                                </div>
-                                <Plus className="w-4 h-4 text-indigo-600" />
-                              </button>
-                            );
-                          })}
-                        
-                        {/* Create new custom column button */}
-                        <button
-                          onClick={() => setShowCustomColumnForm(true)}
-                          className="w-full flex items-center justify-between p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg border border-indigo-600 transition-colors text-left"
-                        >
-                          <div>
-                            <span className="text-sm font-medium text-white">
-                              Create New Custom Column
-                            </span>
-                            <div className="text-xs text-indigo-200">
-                              Add a new custom field to your records
-                            </div>
-                          </div>
-                          <Plus className="w-4 h-4 text-white" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('zendesk')}
-                      className="w-full flex items-center justify-between p-3 bg-green-50 hover:bg-green-100 rounded-lg border border-green-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-green-800">Available Zendesk Fields</h4>
-                        <span className="text-xs text-green-600 bg-green-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('zendesk.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.zendesk ? (
-                        <ChevronUp className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-green-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.zendesk && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('zendesk.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-green-50 rounded-lg border border-green-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-green-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-green-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-green-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('jira')}
-                      className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-blue-800">Available Jira Fields</h4>
-                        <span className="text-xs text-blue-600 bg-blue-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('jira.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.jira ? (
-                        <ChevronUp className="w-4 h-4 text-blue-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-blue-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.jira && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('jira.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-blue-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-blue-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-blue-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('slack')}
-                      className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-red-800">Available Slack Fields</h4>
-                        <span className="text-xs text-red-600 bg-red-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('slack.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.slack ? (
-                        <ChevronUp className="w-4 h-4 text-red-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-red-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.slack && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('slack.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-red-50 rounded-lg border border-red-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-red-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-red-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-red-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('github')}
-                      className="w-full flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-gray-800">Available GitHub Fields</h4>
-                        <span className="text-xs text-gray-600 bg-gray-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('github.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.github ? (
-                        <ChevronUp className="w-4 h-4 text-gray-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-gray-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.github && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('github.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-gray-50 rounded-lg border border-gray-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-gray-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-gray-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-gray-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('salesforce')}
-                      className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-blue-800">Available Salesforce Fields</h4>
-                        <span className="text-xs text-blue-600 bg-blue-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('salesforce.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.salesforce ? (
-                        <ChevronUp className="w-4 h-4 text-blue-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-blue-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.salesforce && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('salesforce.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-blue-50 rounded-lg border border-blue-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-blue-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-blue-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-blue-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => toggleSystemExpansion('teams')}
-                      className="w-full flex items-center justify-between p-3 bg-purple-50 hover:bg-purple-100 rounded-lg border border-purple-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-medium text-purple-800">Available Teams Fields</h4>
-                        <span className="text-xs text-purple-600 bg-purple-200 px-2 py-0.5 rounded-full">
-                          {getAvailableColumns().filter(key => key.startsWith('teams.')).length}
-                        </span>
-                      </div>
-                      {expandedSystems.teams ? (
-                        <ChevronUp className="w-4 h-4 text-purple-600" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-purple-600" />
-                      )}
-                    </button>
-                    
-                    {expandedSystems.teams && (
-                      <div className="space-y-2 ml-4">
-                        {getAvailableColumns()
-                          .filter(key => key.startsWith('teams.'))
-                          .map(columnKey => {
-                            const meta = currentColumnMetadata[columnKey];
-                            return (
-                              <div key={columnKey} className="flex items-center gap-2">
-                                <button
-                                  onClick={() => addColumn(columnKey)}
-                                  className="flex-1 flex items-center justify-between p-3 bg-white hover:bg-purple-50 rounded-lg border border-purple-100 transition-colors text-left"
-                                >
-                                  <div>
-                                    <span className="text-sm font-medium text-purple-700">
-                                      {meta.label}
-                                    </span>
-                                    <div className="text-xs text-purple-600 capitalize">
-                                      {meta.group}
-                                    </div>
-                                  </div>
-                                  <Plus className="w-4 h-4 text-purple-600" />
-                                </button>
-                                <button
-                                  onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                                  title="Edit display name"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            
-            {/* Display Name Editing */}
-            {editingDisplayName && (
-              <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-800 mb-3">Edit Display Name</h4>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    value={displayNameInput}
-                    onChange={(e) => setDisplayNameInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveDisplayName();
-                      if (e.key === 'Escape') cancelDisplayNameEdit();
-                    }}
-                    className="flex-1 px-3 py-2 border border-blue-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                    placeholder="Enter display name"
-                    autoFocus
-                  />
-                  <button
-                    onClick={saveDisplayName}
-                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={cancelDisplayNameEdit}
-                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <p className="text-xs text-blue-600 mt-2">
-                  This will change how the column appears in the table header.
-                </p>
-              </div>
-            )}
-            
-            {!showCustomColumnForm && !editingDisplayName && (
-                  <div className="flex justify-end gap-3 mt-6">
-                    <button
-                      onClick={() => setShowAddColumn(false)}
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+        {/* Column Manager */}
+        <ColumnManager 
+          // Modal state
+          showColumnConfig={showColumnConfig}
+          setShowColumnConfig={setShowColumnConfig}
+          showAddColumn={showAddColumn}
+          setShowAddColumn={setShowAddColumn}
+          showCustomColumnForm={showCustomColumnForm}
+          setShowCustomColumnForm={setShowCustomColumnForm}
+          
+          // Column data
+          currentColumnMetadata={currentColumnMetadata}
+          visibleColumns={visibleColumns}
+          columnOrder={columnOrder}
+          columnDisplayNames={columnDisplayNames}
+          
+          // Column functions
+          getVisibleColumnsInOrder={getVisibleColumnsInOrder}
+          getAvailableColumns={getAvailableColumns}
+          addColumn={addColumn}
+          removeColumn={removeColumn}
+          moveColumn={moveColumn}
+          
+          // Drag and drop state
+          draggedColumn={draggedColumn}
+          setDraggedColumn={setDraggedColumn}
+          dragOverIndex={dragOverIndex}
+          setDragOverIndex={setDragOverIndex}
+          handleDragStart={handleDragStart}
+          handleDragOver={handleDragOver}
+          handleDragLeave={handleDragLeave}
+          handleDrop={handleDrop}
+          handleDragEnd={handleDragEnd}
+          
+          // System expansion
+          expandedSystems={expandedSystems}
+          toggleSystemExpansion={toggleSystemExpansion}
+          
+          // Custom columns
+          customColumns={customColumns}
+          editingColumn={editingColumn}
+          setEditingColumn={setEditingColumn}
+          handleSaveCustomColumn={handleSaveCustomColumn}
+          handleEditCustomColumn={handleEditCustomColumn}
+          handleDeleteCustomColumn={handleDeleteCustomColumn}
+          
+          // Display name editing
+          editingDisplayName={editingDisplayName}
+          setEditingDisplayName={setEditingDisplayName}
+          displayNameInput={displayNameInput}
+          setDisplayNameInput={setDisplayNameInput}
+          startEditingDisplayName={startEditingDisplayName}
+          saveDisplayName={saveDisplayName}
+          cancelDisplayNameEdit={cancelDisplayNameEdit}
+        />
 
       {/* Connected Systems Modal */}
       {showConnectedSystems && (
