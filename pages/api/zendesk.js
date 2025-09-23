@@ -60,6 +60,26 @@ export default async function handler(req, res) {
           isActive: true
         }
       });
+
+      // After successful credential save, fetch custom field definitions
+      try {
+        const customFieldsResponse = await fetch(`${req.headers.origin || 'http://localhost:3000'}/api/zendesk/custom-fields?subdomain=${subdomain}&email=${encodeURIComponent(email)}&apiKey=${encodeURIComponent(apiKey)}`);
+        
+        if (customFieldsResponse.ok) {
+          const customFieldsData = await customFieldsResponse.json();
+          
+          // Return success with custom fields data for auto-populating display names
+          return res.status(200).json({ 
+            success: true,
+            customFields: customFieldsData.customFields || []
+          });
+        } else {
+          console.warn('Failed to fetch custom fields, but credentials saved successfully');
+        }
+      } catch (customFieldsError) {
+        console.warn('Error fetching custom fields:', customFieldsError);
+        // Don't fail the whole operation if custom fields fetch fails
+      }
       
       return res.status(200).json({ success: true });
       

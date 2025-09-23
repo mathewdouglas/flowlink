@@ -153,6 +153,82 @@ const SettingsPage = () => {
     }
   }, [triggerSync, addError]);
 
+  // Refresh Zendesk custom field names
+  const refreshZendeskFieldNames = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      
+      // Get Zendesk credentials first
+      const credentialsResponse = await fetch('/api/zendesk/credentials');
+      if (!credentialsResponse.ok) {
+        throw new Error('No Zendesk credentials found');
+      }
+      
+      const credentials = await credentialsResponse.json();
+      console.log('Got credentials:', { subdomain: credentials.subdomain, email: credentials.email });
+      
+      // Fetch custom fields
+      const customFieldsResponse = await fetch(
+        `/api/zendesk/custom-fields?subdomain=${credentials.subdomain}&email=${encodeURIComponent(credentials.email)}&apiKey=${encodeURIComponent(credentials.apiKey)}`
+      );
+      
+      if (!customFieldsResponse.ok) {
+        const errorText = await customFieldsResponse.text();
+        throw new Error(`Failed to fetch custom fields: ${customFieldsResponse.status} ${errorText}`);
+      }
+      
+      const customFieldsData = await customFieldsResponse.json();
+      console.log('Got custom fields:', customFieldsData);
+      
+      if (!customFieldsData.customFields || customFieldsData.customFields.length === 0) {
+        alert('No custom fields found in Zendesk');
+        return;
+      }
+      
+      // Update dashboard config with new display names
+      const configResponse = await fetch(`/api/dashboard/config?userId=${CURRENT_USER_ID}&organizationId=${CURRENT_ORG_ID}`);
+      if (configResponse.ok) {
+        const currentConfig = await configResponse.json();
+        const existingDisplayNames = currentConfig.columnDisplayNames || {};
+        const newDisplayNames = { ...existingDisplayNames };
+        let updatedCount = 0;
+        
+        customFieldsData.customFields.forEach(field => {
+          if (field.key && field.title) {
+            newDisplayNames[field.key] = field.title;
+            updatedCount++;
+          }
+        });
+        
+        console.log('Updating display names:', newDisplayNames);
+        
+        // Save updated config
+        const saveResponse = await fetch('/api/dashboard/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: CURRENT_USER_ID,
+            organizationId: CURRENT_ORG_ID,
+            ...currentConfig,
+            columnDisplayNames: newDisplayNames
+          })
+        });
+        
+        if (!saveResponse.ok) {
+          throw new Error('Failed to save updated display names');
+        }
+        
+        alert(`Updated ${updatedCount} custom field display names`);
+      }
+      
+    } catch (error) {
+      console.error('Error refreshing custom field names:', error);
+      addError('Failed to refresh custom field names: ' + error.message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [addError]);
+
   // Get status icon
   const getStatusIcon = (status) => {
     switch (status) {
@@ -236,16 +312,32 @@ const SettingsPage = () => {
                 <p className="text-sm text-gray-600 capitalize">{system.type}</p>
                 <div className="mt-3">
                   {(system.name === 'Zendesk' || system.name === 'Jira') && (
-                    <button
-                      onClick={() => system.name === 'Zendesk' ? setShowZendeskConfig(true) : setShowJiraConfig(true)}
-                      className={`px-3 py-1.5 text-white text-xs font-medium rounded-md transition-colors duration-200 ${
-                        system.status === 'not connected'
-                          ? 'bg-green-600 hover:bg-green-700'
-                          : 'bg-blue-600 hover:bg-blue-700'
-                      }`}
-                    >
-                      {system.status === 'not connected' ? 'Set up' : 'Configure'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => system.name === 'Zendesk' ? setShowZendeskConfig(true) : setShowJiraConfig(true)}
+                        className={`px-3 py-1.5 text-white text-xs font-medium rounded-md transition-colors duration-200 ${
+                          system.status === 'not connected'
+                            ? 'bg-green-600 hover:bg-green-700'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                      >
+                        {system.status === 'not connected' ? 'Set up' : 'Configure'}
+                      </button>
+                      {system.name === 'Zendesk' && system.status === 'connected' && (
+                        <button
+                          onClick={refreshZendeskFieldNames}
+                          disabled={isRefreshing}
+                          className="px-3 py-1.5 text-gray-600 text-xs font-medium rounded-md border border-gray-300 hover:bg-gray-50 transition-colors duration-200 disabled:opacity-50"
+                          title="Refresh custom field display names"
+                        >
+                          {isRefreshing ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3 h-3" />
+                          )}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

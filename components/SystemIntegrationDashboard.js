@@ -44,8 +44,29 @@ const SystemIntegrationDashboard = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subdomain: zendeskSubdomain, email: zendeskEmail, apiKey: zendeskApiKey })
       });
+      
       if (res.ok) {
+        const data = await res.json();
         setZendeskSaveStatus('success');
+        
+        // If custom fields were returned, auto-populate display names
+        if (data.customFields && data.customFields.length > 0) {
+          const newDisplayNames = { ...columnDisplayNames };
+          
+          data.customFields.forEach(field => {
+            // Only set display name if it's not already set
+            if (!newDisplayNames[field.key]) {
+              newDisplayNames[field.key] = field.title;
+            }
+          });
+          
+          // Save the updated display names if any were added
+          if (Object.keys(newDisplayNames).length > Object.keys(columnDisplayNames).length) {
+            setColumnDisplayNames(newDisplayNames);
+            autoSaveConfig(visibleColumns, columnOrder, newDisplayNames);
+          }
+        }
+        
         setTimeout(() => setShowZendeskSetup(false), 1200);
         // Re-check connection after saving
         setTimeout(() => {
@@ -1877,19 +1898,24 @@ const SystemIntegrationDashboard = () => {
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-md font-medium text-gray-900">Status Distribution</h4>
-                  <select
-                    value={statusChartColumn}
-                    onChange={(e) => setStatusChartColumn(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-                  >
-                    {Object.keys(currentColumnMetadata)
-                      .filter(columnKey => visibleColumns.includes(columnKey))
-                      .map(columnKey => (
-                      <option key={columnKey} value={columnKey}>
-                        {currentColumnMetadata[columnKey].label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={statusChartColumn}
+                      onChange={(e) => setStatusChartColumn(e.target.value)}
+                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                    >
+                      {Object.keys(currentColumnMetadata)
+                        .filter(columnKey => visibleColumns.includes(columnKey))
+                        .map(columnKey => (
+                        <option key={columnKey} value={columnKey}>
+                          {currentColumnMetadata[columnKey].label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
@@ -1915,19 +1941,24 @@ const SystemIntegrationDashboard = () => {
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-md font-medium text-gray-900">Priority Distribution</h4>
-                  <select
-                    value={priorityChartColumn}
-                    onChange={(e) => setPriorityChartColumn(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-                  >
-                    {Object.keys(currentColumnMetadata)
-                      .filter(columnKey => visibleColumns.includes(columnKey))
-                      .map(columnKey => (
-                      <option key={columnKey} value={columnKey}>
-                        {currentColumnMetadata[columnKey].label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={priorityChartColumn}
+                      onChange={(e) => setPriorityChartColumn(e.target.value)}
+                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                    >
+                      {Object.keys(currentColumnMetadata)
+                        .filter(columnKey => visibleColumns.includes(columnKey))
+                        .map(columnKey => (
+                        <option key={columnKey} value={columnKey}>
+                          {currentColumnMetadata[columnKey].label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={analyticsData.priorityData}>
@@ -1944,19 +1975,24 @@ const SystemIntegrationDashboard = () => {
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-md font-medium text-gray-900">Tickets Created (Last 30 Days)</h4>
-                  <select
-                    value={timeChartColumn}
-                    onChange={(e) => setTimeChartColumn(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-                  >
-                    {Object.keys(currentColumnMetadata)
-                      .filter(columnKey => visibleColumns.includes(columnKey))
-                      .map(columnKey => (
-                      <option key={columnKey} value={columnKey}>
-                        {currentColumnMetadata[columnKey].label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={timeChartColumn}
+                      onChange={(e) => setTimeChartColumn(e.target.value)}
+                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                    >
+                      {Object.keys(currentColumnMetadata)
+                        .filter(columnKey => visibleColumns.includes(columnKey))
+                        .map(columnKey => (
+                        <option key={columnKey} value={columnKey}>
+                          {currentColumnMetadata[columnKey].label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <ResponsiveContainer width="100%" height={250}>
                   <LineChart data={analyticsData.timeData}>
@@ -1973,19 +2009,24 @@ const SystemIntegrationDashboard = () => {
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-md font-medium text-gray-900">Top Assignees</h4>
-                  <select
-                    value={assigneeChartColumn}
-                    onChange={(e) => setAssigneeChartColumn(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-                  >
-                    {Object.keys(currentColumnMetadata)
-                      .filter(columnKey => visibleColumns.includes(columnKey))
-                      .map(columnKey => (
-                      <option key={columnKey} value={columnKey}>
-                        {currentColumnMetadata[columnKey].label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={assigneeChartColumn}
+                      onChange={(e) => setAssigneeChartColumn(e.target.value)}
+                      className="appearance-none text-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 pr-8 bg-white"
+                    >
+                      {Object.keys(currentColumnMetadata)
+                        .filter(columnKey => visibleColumns.includes(columnKey))
+                        .map(columnKey => (
+                        <option key={columnKey} value={columnKey}>
+                          {currentColumnMetadata[columnKey].label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+                      ▼
+                    </span>
+                  </div>
                 </div>
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={analyticsData.assigneeData} layout="horizontal">

@@ -32,6 +32,7 @@ export default async function handler(req, res) {
       configured: true,
       subdomain: credentials.subdomain,
       email: credentials.email,
+      apiKey: credentials.apiKey, // Include for internal API calls
       isActive: credentials.isActive,
       customConfig: credentials.customConfig ? JSON.parse(credentials.customConfig) : {},
       createdAt: credentials.createdAt,
