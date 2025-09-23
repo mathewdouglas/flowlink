@@ -5,6 +5,7 @@ export default function ZendeskConfigModal({ isOpen, onClose }) {
   const [email, setEmail] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [autoSolveMissingTickets, setAutoSolveMissingTickets] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [status, setStatus] = useState('idle'); // idle | loading | saving | success | error
   const [errors, setErrors] = useState({});
@@ -29,6 +30,7 @@ export default function ZendeskConfigModal({ isOpen, onClose }) {
           setEmail(data.email || '');
           setIsActive(data.isActive);
           setSearchQuery(data.customConfig?.searchQuery || '');
+          setAutoSolveMissingTickets(data.customConfig?.autoSolveMissingTickets !== false);
           setIsConfigured(true);
         } else {
           // No credentials configured yet
@@ -36,6 +38,7 @@ export default function ZendeskConfigModal({ isOpen, onClose }) {
           setEmail('');
           setApiKey('');
           setSearchQuery('');
+          setAutoSolveMissingTickets(true);
           setIsActive(true);
           setIsConfigured(false);
         }
@@ -69,7 +72,14 @@ export default function ZendeskConfigModal({ isOpen, onClose }) {
       const res = await fetch('/api/zendesk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subdomain, email, apiKey, searchQuery, isActive })
+        body: JSON.stringify({ 
+          subdomain, 
+          email, 
+          apiKey, 
+          searchQuery, 
+          autoSolveMissingTickets,
+          isActive 
+        })
       });
       if (res.ok) {
         setStatus('success');
@@ -178,6 +188,24 @@ export default function ZendeskConfigModal({ isOpen, onClose }) {
               <br />
               Example: group_id:123 status&lt;solved type:ticket
             </span>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center">
+              <input
+                id="autoSolveMissingTickets"
+                type="checkbox"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                checked={autoSolveMissingTickets}
+                onChange={e => setAutoSolveMissingTickets(e.target.checked)}
+              />
+              <label htmlFor="autoSolveMissingTickets" className="ml-3 block text-sm text-gray-900">
+                Auto-solve tickets that no longer exist in Zendesk
+              </label>
+            </div>
+            <p className="text-xs text-gray-500 ml-7">
+              When enabled, tickets that are deleted or no longer accessible in Zendesk will be automatically marked as &quot;solved&quot; in FlowLink during sync.
+            </p>
           </div>
 
           <div className="flex items-center">

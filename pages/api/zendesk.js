@@ -8,7 +8,7 @@ const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
 
 export default async function handler(req, res) {
   if (req.method === 'POST') {
-    const { subdomain, email, apiKey, searchQuery } = req.body;
+    const { subdomain, email, apiKey, searchQuery, autoSolveMissingTickets } = req.body;
     if (!subdomain || !email || !apiKey) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -33,7 +33,10 @@ export default async function handler(req, res) {
       }
       
       // Save credentials to database if connection test succeeds
-      const customConfig = JSON.stringify({ searchQuery: searchQuery || '' });
+      const customConfig = JSON.stringify({ 
+        searchQuery: searchQuery || '',
+        autoSolveMissingTickets: autoSolveMissingTickets !== false // Default to true
+      });
       
       await prisma.integrationCredentials.upsert({
         where: {
