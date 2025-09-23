@@ -228,10 +228,10 @@ const RecordTable = ({
                   })}
                   <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-middle">
                     <div className="flex items-center gap-2">
-                      <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200" title="Open in source system">
+                      <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200 cursor-pointer" title="Open in source system">
                         <ExternalLink className="w-4 h-4" />
                       </button>
-                      <button className="text-gray-600 hover:text-gray-800 transition-colors duration-200" title="Configure record">
+                      <button className="text-gray-600 hover:text-gray-800 transition-colors duration-200 cursor-pointer" title="Configure record">
                         <Settings className="w-4 h-4" />
                       </button>
                     </div>

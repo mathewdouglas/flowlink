@@ -124,7 +124,7 @@ const AnalyticsCharts = ({
         <h3 className="text-lg font-semibold text-gray-900">Ticket Analytics</h3>
         <button
           onClick={() => setGraphsExpanded(!graphsExpanded)}
-          className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 hover:text-gray-900 transition-colors"
+          className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 hover:text-gray-900 transition-colors cursor-pointer"
         >
           {graphsExpanded ? (
             <>

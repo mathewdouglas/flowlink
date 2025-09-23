@@ -85,7 +85,7 @@ const ColumnManager = ({
               <h3 className="text-xl font-semibold text-gray-900">Configure Columns</h3>
               <button
                 onClick={() => setShowColumnConfig(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -98,7 +98,7 @@ const ColumnManager = ({
                 </p>
                 <button
                   onClick={() => setShowAddColumn(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
                 >
                   <Plus className="w-5 h-5" />
                   Add Column
@@ -158,7 +158,7 @@ const ColumnManager = ({
                             <button
                               onClick={() => moveColumn(columnKey, 'up')}
                               disabled={index === 0}
-                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                               title="Move up"
                             >
                               <ChevronUp className="w-3 h-3" />
@@ -166,7 +166,7 @@ const ColumnManager = ({
                             <button
                               onClick={() => moveColumn(columnKey, 'down')}
                               disabled={index === getVisibleColumnsInOrder().length - 1}
-                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                              className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                               title="Move down"
                             >
                               <ChevronDown className="w-3 h-3" />
@@ -189,14 +189,14 @@ const ColumnManager = ({
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                              className="p-1 text-gray-400 hover:text-blue-600 transition-colors cursor-pointer"
                               title="Edit display name"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => removeColumn(columnKey)}
-                              className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                              className="p-1 text-gray-400 hover:text-red-600 transition-colors cursor-pointer"
                               title="Remove column"
                             >
                               <X className="w-4 h-4" />
@@ -229,13 +229,13 @@ const ColumnManager = ({
                   />
                   <button
                     onClick={saveDisplayName}
-                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors cursor-pointer"
                   >
                     Save
                   </button>
                   <button
                     onClick={cancelDisplayNameEdit}
-                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -249,7 +249,7 @@ const ColumnManager = ({
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
               <button
                 onClick={() => setShowColumnConfig(false)}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium cursor-pointer"
               >
                 Done
               </button>
@@ -272,7 +272,7 @@ const ColumnManager = ({
                   setShowCustomColumnForm(false);
                   setEditingColumn(null);
                 }}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -302,7 +302,7 @@ const ColumnManager = ({
                       <div className="space-y-3">
                         <button
                           onClick={() => toggleSystemExpansion('custom')}
-                          className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors"
+                          className="w-full flex items-center justify-between p-3 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-colors cursor-pointer"
                         >
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-medium text-indigo-800">Custom Columns</h4>
@@ -328,7 +328,7 @@ const ColumnManager = ({
                                   <button
                                     key={columnKey}
                                     onClick={() => addColumn(columnKey)}
-                                    className="w-full flex items-center justify-between p-3 bg-white hover:bg-indigo-50 rounded-lg border border-indigo-100 transition-colors text-left"
+                                    className="w-full flex items-center justify-between p-3 bg-white hover:bg-indigo-50 rounded-lg border border-indigo-100 transition-colors text-left cursor-pointer"
                                   >
                                     <div>
                                       <span className="text-sm font-medium text-indigo-700">
@@ -346,7 +346,7 @@ const ColumnManager = ({
                             {/* Create new custom column button */}
                             <button
                               onClick={() => setShowCustomColumnForm(true)}
-                              className="w-full flex items-center justify-between p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg border border-indigo-600 transition-colors text-left"
+                              className="w-full flex items-center justify-between p-3 bg-indigo-600 hover:bg-indigo-700 rounded-lg border border-indigo-600 transition-colors text-left cursor-pointer"
                             >
                               <div>
                                 <span className="text-sm font-medium text-white">
@@ -379,7 +379,7 @@ const ColumnManager = ({
                           <div key={system} className="space-y-3">
                             <button
                               onClick={() => toggleSystemExpansion(system)}
-                              className={`w-full flex items-center justify-between p-3 bg-${colors.bg}-50 hover:bg-${colors.bg}-100 rounded-lg border border-${colors.bg}-200 transition-colors`}
+                              className={`w-full flex items-center justify-between p-3 bg-${colors.bg}-50 hover:bg-${colors.bg}-100 rounded-lg border border-${colors.bg}-200 transition-colors cursor-pointer`}
                             >
                               <div className="flex items-center gap-2">
                                 <h4 className={`text-sm font-medium text-${colors.text}-800`}>
@@ -406,7 +406,7 @@ const ColumnManager = ({
                                       <div key={columnKey} className="flex items-center gap-2">
                                         <button
                                           onClick={() => addColumn(columnKey)}
-                                          className={`flex-1 flex items-center justify-between p-3 bg-white hover:bg-${colors.bg}-50 rounded-lg border border-${colors.bg}-100 transition-colors text-left`}
+                                          className={`flex-1 flex items-center justify-between p-3 bg-white hover:bg-${colors.bg}-50 rounded-lg border border-${colors.bg}-100 transition-colors text-left cursor-pointer`}
                                         >
                                           <div>
                                             <span className={`text-sm font-medium text-${colors.text}-700`}>
@@ -420,7 +420,7 @@ const ColumnManager = ({
                                         </button>
                                         <button
                                           onClick={() => startEditingDisplayName(columnKey, meta.label)}
-                                          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                                          className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
                                           title="Edit display name"
                                         >
                                           <Edit3 className="w-4 h-4" />
@@ -456,13 +456,13 @@ const ColumnManager = ({
                       />
                       <button
                         onClick={saveDisplayName}
-                        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                        className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors cursor-pointer"
                       >
                         Save
                       </button>
                       <button
                         onClick={cancelDisplayNameEdit}
-                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors"
+                        className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-md transition-colors cursor-pointer"
                       >
                         Cancel
                       </button>
@@ -477,7 +477,7 @@ const ColumnManager = ({
                   <div className="flex justify-end gap-3 mt-6">
                     <button
                       onClick={() => setShowAddColumn(false)}
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>

@@ -102,7 +102,7 @@ export default function ZendeskSetupForm() {
       </div>
       <button
         type="submit"
-        className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+        className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors cursor-pointer"
         disabled={status === 'saving'}
       >
         {status === 'saving' ? 'Testing Connection...' : 'Test & Save Connection'}

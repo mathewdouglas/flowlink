@@ -65,7 +65,7 @@ const SystemStatus = ({
       <div className="bg-white rounded-xl p-8 w-full max-w-5xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
         <button
           onClick={() => setShowConnectedSystems(false)}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 cursor-pointer"
           aria-label="Close Connected Systems Modal"
         >
           <X className="w-6 h-6" />
@@ -98,7 +98,7 @@ const SystemStatus = ({
                       {system.status === 'connected' ? (
                         <button
                           onClick={navigateToZendeskTickets}
-                          className="w-full text-xs px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                          className="w-full text-xs px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors cursor-pointer"
                         >
                           View Tickets
                         </button>
@@ -108,7 +108,7 @@ const SystemStatus = ({
                             setShowConnectedSystems(false);
                             setShowZendeskSetup(true);
                           }}
-                          className="w-full text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                          className="w-full text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
                         >
                           Connect
                         </button>
@@ -121,7 +121,7 @@ const SystemStatus = ({
                       {system.status === 'connected' ? (
                         <button
                           onClick={() => navigateToTickets('jira')}
-                          className="w-full text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                          className="w-full text-xs px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
                         >
                           View Issues
                         </button>

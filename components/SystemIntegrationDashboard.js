@@ -1606,14 +1606,14 @@ const SystemIntegrationDashboard = () => {
             )}
             <button
               onClick={() => setShowConnectedSystems(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors cursor-pointer"
             >
               <Link className="w-4 h-4" />
               Connections
             </button>
             <button
               onClick={() => setShowColumnConfig(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors cursor-pointer"
             >
               <Eye className="w-4 h-4" />
               Columns
@@ -1621,14 +1621,14 @@ const SystemIntegrationDashboard = () => {
             <button
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
               Refresh
             </button>
             <button
               onClick={() => window.location.href = '/settings'}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors cursor-pointer"
             >
               <Settings className="w-4 h-4" />
               Settings
@@ -1656,7 +1656,7 @@ const SystemIntegrationDashboard = () => {
             <div className="bg-white rounded-xl p-8 w-full max-w-md shadow-2xl relative">
               <button
                 onClick={() => setShowZendeskSetup(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 cursor-pointer"
                 aria-label="Close Zendesk Setup Modal"
               >
                 <X className="w-6 h-6" />
