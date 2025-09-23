@@ -11,6 +11,7 @@ import CustomColumnForm from './CustomColumnForm';
 import AnalyticsCharts from './AnalyticsCharts';
 import RecordTable from './RecordTable';
 import ColumnManager from './ColumnManager';
+import SystemStatus from './SystemStatus';
 
   // Utility function to truncate long text with ellipsis
 const truncateText = (text, maxLength = 50) => {
@@ -894,49 +895,6 @@ const SystemIntegrationDashboard = () => {
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'connected': return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'error': return <AlertCircle className="w-4 h-4 text-red-500" />;
-      case 'pending': return <Clock className="w-4 h-4 text-yellow-500" />;
-      default: return <AlertCircle className="w-4 h-4 text-gray-500" />;
-    }
-  };
-
-  const getCompanyIcon = (systemName) => {
-    const iconMap = {
-      zendesk: '/assets/logos/zendesk.svg',
-      jira: '/assets/logos/jira.svg',
-      slack: '/assets/logos/slack.svg',
-      github: '/assets/logos/github.svg',
-      salesforce: '/assets/logos/salesforce.svg',
-      teams: '/assets/logos/teams.svg'
-    };
-
-    const iconPath = iconMap[systemName.toLowerCase()];
-    
-    if (iconPath) {
-      return (
-        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center border border-gray-200 shadow-sm">
-          <Image
-            src={iconPath}
-            alt={`${systemName} logo`}
-            width={24}
-            height={24}
-            className="w-6 h-6"
-          />
-        </div>
-      );
-    }
-
-    // Fallback for unknown systems
-    return (
-      <div className="w-8 h-8 bg-gray-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
-        {systemName.charAt(0).toUpperCase()}
-      </div>
-    );
-  };
-
   const toggleColumnVisibility = (columnKey) => {
     let newVisibleColumns, newColumnOrder;
     
@@ -1680,88 +1638,31 @@ const SystemIntegrationDashboard = () => {
       </header>
 
       <div className="px-6 py-6">
-        {/* Connected Systems Modal */}
-        {showConnectedSystems && (
+        {/* System Status Component */}
+        <SystemStatus 
+          showConnectedSystems={showConnectedSystems}
+          setShowConnectedSystems={setShowConnectedSystems}
+          connectedSystems={connectedSystems}
+          integrationStatuses={integrationStatuses}
+          checkAllIntegrationStatuses={checkAllIntegrationStatuses}
+          navigateToTickets={navigateToTickets}
+          navigateToZendeskTickets={navigateToZendeskTickets}
+          setShowZendeskSetup={setShowZendeskSetup}
+        />
+        
+        {/* Zendesk Setup Modal */}
+        {showZendeskSetup && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl p-8 w-full max-w-5xl max-h-[90vh] overflow-y-auto relative shadow-2xl">
+            <div className="bg-white rounded-xl p-8 w-full max-w-md shadow-2xl relative">
               <button
-                onClick={() => setShowConnectedSystems(false)}
+                onClick={() => setShowZendeskSetup(false)}
                 className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-                aria-label="Close Connected Systems Modal"
+                aria-label="Close Zendesk Setup Modal"
               >
                 <X className="w-6 h-6" />
               </button>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-8 text-center">Connected Systems</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6">
-                {connectedSystems.map((system) => (
-                  <div
-                    key={system.id}
-                    className="flex flex-col items-center justify-between bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-lg transition-shadow min-h-48 p-5 relative group"
-                  >
-                    <div className="flex flex-col items-center w-full flex-1 justify-center">
-                      {getCompanyIcon(system.name)}
-                      <h3 className="font-semibold text-gray-900 text-base mt-3 mb-1 text-center w-full truncate">{system.name}</h3>
-                      <p className="text-xs text-gray-500 capitalize text-center mb-2 w-full truncate">{system.type}</p>
-                    </div>
-                    
-                    {/* Status and Actions */}
-                    <div className="flex flex-col items-center w-full mt-auto pt-2 space-y-2">
-                      <div className="flex items-center justify-between w-full">
-                        <span className={`inline-block w-3 h-3 rounded-full ${system.color} border border-white shadow`}></span>
-                        <span className="ml-auto">{getStatusIcon(system.status)}</span>
-                      </div>
-                      
-                      {/* Action Buttons */}
-                      <div className="flex flex-col w-full space-y-1">
-                        {system.name.toLowerCase() === 'zendesk' && (
-                          <>
-                            {system.status === 'connected' ? (
-                              <button
-                                onClick={navigateToZendeskTickets}
-                                className="w-full px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
-                              >
-                                View Tickets
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => setShowZendeskSetup(true)}
-                                className="w-full px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                              >
-                                Connect
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {system.name.toLowerCase() !== 'zendesk' && (
-                          <button
-                            disabled
-                            className="w-full px-3 py-1.5 bg-gray-300 text-gray-500 text-xs rounded cursor-not-allowed"
-                          >
-                            Coming Soon
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-      {/* Zendesk Setup Modal */}
-      {showZendeskSetup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 w-full max-w-md shadow-2xl relative">
-            <button
-              onClick={() => setShowZendeskSetup(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
-              aria-label="Close Zendesk Setup Modal"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Connect Zendesk</h2>
-            <ZendeskSetupForm />
-          </div>
-        </div>
-      )}
-
-              </div>
+              <h2 className="text-xl font-semibold text-gray-900 mb-6 text-center">Connect Zendesk</h2>
+              <ZendeskSetupForm />
             </div>
           </div>
         )}
@@ -1927,270 +1828,6 @@ const SystemIntegrationDashboard = () => {
           saveDisplayName={saveDisplayName}
           cancelDisplayNameEdit={cancelDisplayNameEdit}
         />
-
-      {/* Connected Systems Modal */}
-      {showConnectedSystems && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">System Integrations</h3>
-              <button
-                onClick={() => setShowConnectedSystems(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            
-            <div className="flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Zendesk Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/zendesk.svg" alt="Zendesk" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Zendesk</h4>
-                        <p className="text-sm text-gray-600">Support tickets</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.zendesk.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.zendesk.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.zendesk.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.zendesk.status === 'connected' && 'Connected and ready to sync tickets'}
-                      {integrationStatuses.zendesk.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.zendesk.status === 'error' && integrationStatuses.zendesk.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.zendesk.connected && (
-                    <button
-                      onClick={() => navigateToTickets('zendesk')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Tickets
-                    </button>
-                  )}
-                </div>
-
-                {/* Jira Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/jira.svg" alt="Jira" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Jira</h4>
-                        <p className="text-sm text-gray-600">Project management</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.jira.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.jira.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.jira.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.jira.status === 'connected' && 'Connected and ready to sync issues'}
-                      {integrationStatuses.jira.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.jira.status === 'error' && integrationStatuses.jira.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.jira.connected && (
-                    <button
-                      onClick={() => navigateToTickets('jira')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Issues
-                    </button>
-                  )}
-                </div>
-
-                {/* Slack Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/slack.svg" alt="Slack" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Slack</h4>
-                        <p className="text-sm text-gray-600">Team communication</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.slack.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.slack.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.slack.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.slack.status === 'connected' && 'Connected and ready to sync messages'}
-                      {integrationStatuses.slack.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.slack.status === 'error' && integrationStatuses.slack.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.slack.connected && (
-                    <button
-                      onClick={() => navigateToTickets('slack')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Messages
-                    </button>
-                  )}
-                </div>
-
-                {/* GitHub Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/github.svg" alt="GitHub" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">GitHub</h4>
-                        <p className="text-sm text-gray-600">Code repository</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.github.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.github.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.github.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.github.status === 'connected' && 'Connected and ready to sync issues'}
-                      {integrationStatuses.github.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.github.status === 'error' && integrationStatuses.github.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.github.connected && (
-                    <button
-                      onClick={() => navigateToTickets('github')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Issues
-                    </button>
-                  )}
-                </div>
-
-                {/* Salesforce Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/salesforce.svg" alt="Salesforce" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Salesforce</h4>
-                        <p className="text-sm text-gray-600">CRM platform</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.salesforce.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.salesforce.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.salesforce.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.salesforce.status === 'connected' && 'Connected and ready to sync cases'}
-                      {integrationStatuses.salesforce.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.salesforce.status === 'error' && integrationStatuses.salesforce.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.salesforce.connected && (
-                    <button
-                      onClick={() => navigateToTickets('salesforce')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Cases
-                    </button>
-                  )}
-                </div>
-
-                {/* Teams Integration */}
-                <div className="border border-gray-200 rounded-lg p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 flex items-center justify-center">
-                        <Image src="/assets/logos/teams.svg" alt="Microsoft Teams" width={32} height={32} />
-                      </div>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Microsoft Teams</h4>
-                        <p className="text-sm text-gray-600">Team collaboration</p>
-                      </div>
-                    </div>
-                    <div className={`w-3 h-3 rounded-full ${
-                      integrationStatuses.teams.status === 'connected' ? 'bg-green-500' :
-                      integrationStatuses.teams.status === 'checking' ? 'bg-yellow-400 animate-pulse' :
-                      'bg-gray-400'
-                    }`} />
-                  </div>
-                  
-                  <div className="mb-4">
-                    <p className="text-sm text-gray-600">
-                      {integrationStatuses.teams.status === 'checking' && 'Checking connection...'}
-                      {integrationStatuses.teams.status === 'connected' && 'Connected and ready to sync messages'}
-                      {integrationStatuses.teams.status === 'not_configured' && 'Not configured yet'}
-                      {integrationStatuses.teams.status === 'error' && integrationStatuses.teams.message}
-                    </p>
-                  </div>
-                  
-                  {integrationStatuses.teams.connected && (
-                    <button
-                      onClick={() => navigateToTickets('teams')}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      View Messages
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
-              <button
-                onClick={() => setShowConnectedSystems(false)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
