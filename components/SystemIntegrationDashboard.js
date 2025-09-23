@@ -1897,7 +1897,9 @@ const SystemIntegrationDashboard = () => {
               {/* Status Distribution */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">Status Distribution</h4>
+                  <h4 className="text-md font-medium text-gray-900">
+                    {currentColumnMetadata[statusChartColumn]?.label || 'Status'} Distribution
+                  </h4>
                   <div className="relative">
                     <select
                       value={statusChartColumn}
@@ -1932,7 +1934,19 @@ const SystemIntegrationDashboard = () => {
                         <Cell key={`cell-${index}`} fill={['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'][index % 5]} />
                       ))}
                     </Pie>
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name) => [
+                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
+                        name
+                      ]}
+                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -1940,7 +1954,9 @@ const SystemIntegrationDashboard = () => {
               {/* Priority Distribution */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">Priority Distribution</h4>
+                  <h4 className="text-md font-medium text-gray-900">
+                    {currentColumnMetadata[priorityChartColumn]?.label || 'Priority'} Distribution
+                  </h4>
                   <div className="relative">
                     <select
                       value={priorityChartColumn}
@@ -1965,7 +1981,19 @@ const SystemIntegrationDashboard = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="priority" />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name) => [
+                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
+                        'Count'
+                      ]}
+                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
                     <Bar dataKey="count" fill="#3B82F6" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -1974,7 +2002,9 @@ const SystemIntegrationDashboard = () => {
               {/* Tickets Created Over Time */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">Tickets Created (Last 30 Days)</h4>
+                  <h4 className="text-md font-medium text-gray-900">
+                    {currentColumnMetadata[timeChartColumn]?.label || 'Time'} Analysis (Last 30 Days)
+                  </h4>
                   <div className="relative">
                     <select
                       value={timeChartColumn}
@@ -1999,7 +2029,20 @@ const SystemIntegrationDashboard = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name) => [
+                        `${value} tickets`,
+                        'Count'
+                      ]}
+                      labelFormatter={(label) => `Date: ${label}`}
+                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
                     <Line type="monotone" dataKey="tickets" stroke="#10B981" strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -2008,7 +2051,9 @@ const SystemIntegrationDashboard = () => {
               {/* Top Assignees */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900">Top Assignees</h4>
+                  <h4 className="text-md font-medium text-gray-900">
+                    Top {currentColumnMetadata[assigneeChartColumn]?.label || 'Assignees'}
+                  </h4>
                   <div className="relative">
                     <select
                       value={assigneeChartColumn}
@@ -2033,7 +2078,19 @@ const SystemIntegrationDashboard = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis type="number" />
                     <YAxis dataKey="assignee" type="category" width={80} />
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value, name) => [
+                        `${value} tickets (${((value / analyticsData.totalTickets) * 100).toFixed(1)}%)`,
+                        'Count'
+                      ]}
+                      labelStyle={{ color: '#374151', fontWeight: 'medium' }}
+                      contentStyle={{ 
+                        backgroundColor: 'white', 
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                    />
                     <Bar dataKey="tickets" fill="#8B5CF6" />
                   </BarChart>
                 </ResponsiveContainer>
