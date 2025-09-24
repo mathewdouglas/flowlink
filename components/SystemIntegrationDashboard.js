@@ -12,19 +12,14 @@ import AnalyticsCharts from './AnalyticsCharts';
 import RecordTable from './RecordTable';
 import ColumnManager from './ColumnManager';
 import SystemStatus from './SystemStatus';
-
-  // Utility function to truncate long text with ellipsis
-const truncateText = (text, maxLength = 50) => {
-  if (!text || typeof text !== 'string') return text;
-  if (text.length <= maxLength) return text;
-  return text.substring(0, maxLength).trim() + '...';
-};
+import FilterControls from './FilterControls';
+import { truncateText } from '../utils/textUtils';
+import { getRecordFieldValue, getCustomFields, getCellRecordForColumn } from '../utils/recordFieldUtils';
+import { getSystemColor, getPriorityColor, getStatusColor } from '../utils/styleUtils';
+import { sortRecords, processRecordsWithLinks } from '../utils/dataUtils';
+import { CURRENT_USER_ID, CURRENT_ORG_ID, DEFAULT_COLUMNS, SYSTEM_CONFIGS, DEFAULT_FIELD_MAPPINGS } from '../constants/appConstants';
 
 const SystemIntegrationDashboard = () => {
-  // This would come from your auth system - using the actual seeded org ID
-  const CURRENT_USER_ID = 'cmfroy65h0001pldk9103iapw';
-  const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
-
   // Helper function to navigate to Zendesk tickets
   const navigateToZendeskTickets = () => {
     window.location.href = '/zendesk-tickets';
@@ -101,14 +96,7 @@ const SystemIntegrationDashboard = () => {
     updateRecordCustomFields 
   } = useCustomColumns(CURRENT_ORG_ID);
 
-  const [connectedSystems, setConnectedSystems] = useState([
-    { id: 1, name: 'Zendesk', type: 'support', status: 'not_connected', color: 'bg-gray-400' },
-    { id: 2, name: 'Jira', type: 'project', status: 'not_connected', color: 'bg-gray-400' },
-    { id: 3, name: 'Slack', type: 'communication', status: 'not_connected', color: 'bg-gray-400' },
-    { id: 4, name: 'GitHub', type: 'development', status: 'not_connected', color: 'bg-gray-400' },
-    { id: 5, name: 'Salesforce', type: 'crm', status: 'not_connected', color: 'bg-gray-400' },
-    { id: 6, name: 'Teams', type: 'communication', status: 'not_connected', color: 'bg-gray-400' }
-  ]);
+  const [connectedSystems, setConnectedSystems] = useState(SYSTEM_CONFIGS);
 
   // Helper to update a system's status and color
   const updateSystemStatus = (systemName, status) => {
@@ -164,12 +152,8 @@ const SystemIntegrationDashboard = () => {
       setGraphsExpanded(config.graphsExpanded !== false); // Default to true if not set
     } else {
       // Set default visible columns if no config exists
-      const defaultColumns = [
-        'zendesk.id', 'zendesk.subject', 'zendesk.status', 'zendesk.priority',
-        'zendesk.assignee', 'zendesk.created_at'
-      ];
-      setVisibleColumns(defaultColumns);
-      setColumnOrder(defaultColumns);
+      setVisibleColumns(DEFAULT_COLUMNS);
+      setColumnOrder(DEFAULT_COLUMNS);
       setColumnDisplayNames({});
       setGraphsExpanded(true); // Default to expanded
     }
@@ -201,9 +185,7 @@ const SystemIntegrationDashboard = () => {
   }, [saveConfig]);
 
   // Field mapping and linking configuration (keep for future enhancement)
-  const [fieldMappings, setFieldMappings] = useState([
-    { id: 1, system1: 'Zendesk', field1: 'jira_id', system2: 'Jira', field2: 'id', active: true, name: 'Zendesk-Jira Escalation' }
-  ]);
+  const [fieldMappings, setFieldMappings] = useState(DEFAULT_FIELD_MAPPINGS);
 
   // Column metadata with display names, types, and order
   const columnMetadata = useMemo(() => ({
@@ -475,101 +457,6 @@ const SystemIntegrationDashboard = () => {
     return sortDirection === 'asc' ? <ChevronUp className="w-4 h-4 inline ml-1" /> : <ChevronDown className="w-4 h-4 inline ml-1" />;
   };
 
-  // Helper function to get field value from a record
-  const getRecordFieldValue = (record, field) => {
-    // Extract the actual field name from prefixed fields (e.g., 'zendesk.status' -> 'status')
-    let actualField = field;
-    if (field.includes('.')) {
-      actualField = field.split('.').pop(); // Get the last part after the dot
-    }
-    
-    switch (actualField) {
-      case 'id':
-      case 'key':
-      case 'number':
-      case 'case_number':
-      case 'message_id':
-        return record.sourceId;
-      case 'subject':
-      case 'summary':
-      case 'title':
-        return record.title;
-      case 'description':
-        return record.description;
-      case 'status':
-      case 'state':
-        return record.status;
-      case 'priority':
-        return record.priority;
-      case 'assignee':
-      case 'owner':
-        return record.assigneeName || record.assigneeEmail;
-      case 'reporter':
-      case 'requester':
-      case 'author':
-      case 'user':
-      case 'from':
-        return record.reporterName || record.reporterEmail;
-      case 'created_at':
-      case 'created':
-      case 'timestamp':
-      case 'created_datetime':
-        return record.sourceCreatedAt;
-      case 'updated_at':
-      case 'updated':
-        return record.sourceUpdatedAt;
-      default:
-        // Handle Zendesk custom fields (format: zendesk.custom_123456789)
-        if (field.startsWith('zendesk.custom_')) {
-          const fieldId = field.substring(15); // Remove 'zendesk.custom_' prefix
-          try {
-            const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldId] !== undefined && customFields[fieldId] !== null ? customFields[fieldId] : '';
-          } catch {
-            return '';
-          }
-        }
-        // Handle other Zendesk fields from customFields
-        if (field.startsWith('zendesk.')) {
-          const fieldName = field.substring(8); // Remove 'zendesk.' prefix
-          try {
-            const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldName] !== undefined && customFields[fieldName] !== null ? customFields[fieldName] : '';
-          } catch {
-            return '';
-          }
-        }
-        // Handle Zendesk custom fields (format: custom_123456789)
-        if (field.startsWith('custom_')) {
-          const fieldId = field.substring(7); // Remove 'custom_' prefix
-          try {
-            const customFields = record.customFields || {}; // Already parsed by API
-            return customFields[fieldId] !== undefined && customFields[fieldId] !== null ? customFields[fieldId] : '';
-          } catch {
-            return '';
-          }
-        }
-        // Handle custom columns (format: custom.column_name)
-        if (field.startsWith('custom.')) {
-          const fieldName = field.substring(7); // Remove 'custom.' prefix
-          try {
-            const customFields = record.customFields || {}; // Already parsed by API
-            const value = customFields[fieldName];
-            return value !== undefined && value !== null ? value : '';
-          } catch {
-            return '';
-          }
-        }
-        // Try other custom fields
-        try {
-          const customFields = record.customFields || {}; // Already parsed by API
-          return customFields[field];
-        } catch {
-          return '';
-        }
-    }
-  };
-
   // Inline editing state for custom columns
   const [editingCell, setEditingCell] = useState(null); // { recordId, fieldName }
   const [editingValue, setEditingValue] = useState('');
@@ -624,51 +511,6 @@ const SystemIntegrationDashboard = () => {
     // System filter (handled by selectedSystem already)
     return matchesSearch && matchesStatus;
   });
-
-  // Sorting function
-  const sortRecords = (records, column, direction) => {
-    if (!column) return records;
-
-    return [...records].sort((a, b) => {
-      let aValue, bValue;
-
-      if (column === 'linkStatus') {
-        // Link status sorting is handled separately after linkedRecords are processed
-        aValue = a.id; // Fallback to ID for consistent ordering
-        bValue = b.id;
-      } else {
-        const [system, field] = column.split('.');
-
-        // Get value from the record if it matches the system, otherwise use empty string
-        if (system === a.sourceSystem) {
-          aValue = getRecordFieldValue(a, field);
-        } else {
-          aValue = '';
-        }
-
-        if (system === b.sourceSystem) {
-          bValue = getRecordFieldValue(b, field);
-        } else {
-          bValue = '';
-        }
-      }
-
-      // Handle null/undefined values
-      if (aValue == null && bValue == null) return 0;
-      if (aValue == null) return direction === 'asc' ? 1 : -1;
-      if (bValue == null) return direction === 'asc' ? -1 : 1;
-
-      // Convert to strings for comparison
-      const aStr = String(aValue).toLowerCase();
-      const bStr = String(bValue).toLowerCase();
-
-      if (direction === 'asc') {
-        return aStr.localeCompare(bStr);
-      } else {
-        return bStr.localeCompare(aStr);
-      }
-    });
-  };
 
   // Sorting handler
   const handleSort = (columnKey) => {
@@ -833,65 +675,6 @@ const SystemIntegrationDashboard = () => {
       setShowColumnConfig(false);
     } catch (error) {
       console.error('Failed to save configuration:', error);
-    }
-  };
-
-  // Get system color based on source system
-  const getSystemColor = (system) => {
-    const colors = {
-      zendesk: 'green',
-      jira: 'blue', 
-      slack: 'red',
-      github: 'gray',
-      salesforce: 'blue',
-      teams: 'purple'
-    };
-    return colors[system] || 'gray';
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'Critical': return 'text-red-800 bg-red-100 border-red-200';
-      case 'High': return 'text-orange-800 bg-orange-100 border-orange-200';
-      case 'Medium': return 'text-yellow-800 bg-yellow-100 border-yellow-200';
-      case 'Low': return 'text-green-800 bg-green-100 border-green-200';
-      default: return 'text-gray-800 bg-gray-100 border-gray-200';
-    }
-  };
-
-  const getStatusColor = (status, system) => {
-    if (!status) return 'text-gray-800 bg-gray-100';
-    const normalizedStatus = String(status).toLowerCase();
-    if (system === 'zendesk') {
-      switch (normalizedStatus) {
-        case 'new': return 'text-orange-800 bg-orange-100'; // Orange
-        case 'open': return 'text-red-800 bg-red-100'; // Red
-        case 'pending': return 'text-blue-800 bg-blue-100'; // Blue
-        case 'on hold': return 'text-white bg-gray-800'; // Black
-        case 'solved': return 'text-gray-800 bg-gray-200'; // Grey
-        case 'closed': return 'text-gray-800 bg-gray-200'; // Grey
-        default: return 'text-gray-800 bg-gray-100';
-      }
-    } else if (system === 'jira') {
-      switch (normalizedStatus) {
-        case 'open': return 'text-gray-800 bg-gray-200'; // Grey
-        case 'under review': return 'text-blue-800 bg-blue-100'; // Blue
-        case 'in progress': return 'text-blue-800 bg-blue-100'; // Blue
-        case 'solution provided': return 'text-blue-800 bg-blue-100'; // Blue
-        case 'done': return 'text-green-800 bg-green-100'; // Green
-        default: return 'text-gray-800 bg-gray-100';
-      }
-    } else {
-      // Fallback for other systems
-      switch (normalizedStatus) {
-        case 'open': return 'text-blue-800 bg-blue-100';
-        case 'in progress': return 'text-orange-800 bg-orange-100';
-        case 'review': return 'text-purple-800 bg-purple-100';
-        case 'resolved':
-        case 'done': return 'text-green-800 bg-green-100';
-        case 'pending': return 'text-gray-800 bg-gray-100';
-        default: return 'text-gray-800 bg-gray-100';
-      }
     }
   };
 
@@ -1158,18 +941,6 @@ const SystemIntegrationDashboard = () => {
   const cancelDisplayNameEdit = () => {
     setEditingDisplayName(null);
     setDisplayNameInput('');
-  };
-
-  // Helper function to safely get customFields as an object
-  const getCustomFields = (record) => {
-    try {
-      return typeof record.customFields === 'string' 
-        ? JSON.parse(record.customFields) 
-        : (record.customFields || {});
-    } catch (error) {
-      console.warn('Error parsing custom fields:', error);
-      return {};
-    }
   };
 
   const renderTableCell = (record, columnKey) => {
@@ -1556,17 +1327,6 @@ const SystemIntegrationDashboard = () => {
     return merged;
   };
 
-  // Helper: for a given column, find the record (main or linked) whose sourceSystem matches the column's system
-  const getCellRecordForColumn = (record, columnKey) => {
-    const [system] = columnKey.split('.');
-    if (record.sourceSystem === system) return record;
-    if (record.linkedRecords && record.linkedRecords.length > 0) {
-      const match = record.linkedRecords.find(lr => lr.sourceSystem === system);
-      if (match) return match;
-    }
-    return record; // fallback
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1721,21 +1481,32 @@ const SystemIntegrationDashboard = () => {
           </div>
         </div>
 
+        {/* Filter Controls */}
+        <FilterControls 
+          // Search functionality
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          
+          // System filter
+          filterSystem={filterSystem}
+          setFilterSystem={setFilterSystem}
+          
+          // Status filter
+          filterStatusColumn={filterStatusColumn}
+          setFilterStatusColumn={setFilterStatusColumn}
+          filterStatusValue={filterStatusValue}
+          setFilterStatusValue={setFilterStatusValue}
+          
+          // Available options
+          getAvailableStatusColumns={getAvailableStatusColumns}
+          getAvailableStatusValues={getAvailableStatusValues}
+        />
+
         {/* Records Table */}
         <RecordTable 
           // Data
           linkedRecords={linkedRecords}
           currentColumnMetadata={currentColumnMetadata}
-          
-          // Filtering and search
-          searchTerm={searchTerm}
-          setSearchTerm={setSearchTerm}
-          filterSystem={filterSystem}
-          setFilterSystem={setFilterSystem}
-          filterStatusColumn={filterStatusColumn}
-          setFilterStatusColumn={setFilterStatusColumn}
-          filterStatusValue={filterStatusValue}
-          setFilterStatusValue={setFilterStatusValue}
           
           // Sorting
           sortColumn={sortColumn}
@@ -1763,10 +1534,6 @@ const SystemIntegrationDashboard = () => {
           getCustomFields={getCustomFields}
           getStatusColor={getStatusColor}
           getSystemColor={getSystemColor}
-          
-          // Available options for filters
-          getAvailableStatusColumns={getAvailableStatusColumns}
-          getAvailableStatusValues={getAvailableStatusValues}
           
           // Handle key press for editing
           handleKeyPress={handleKeyPress}
