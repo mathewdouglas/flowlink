@@ -285,7 +285,7 @@ const SettingsPage = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => window.history.back()}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg transition-colors cursor-pointer"
             >
               <ArrowRight className="w-4 h-4 rotate-180" />
               Back to Dashboard
@@ -315,7 +315,7 @@ const SettingsPage = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => system.name === 'Zendesk' ? setShowZendeskConfig(true) : setShowJiraConfig(true)}
-                        className={`px-3 py-1.5 text-white text-xs font-medium rounded-md transition-colors duration-200 ${
+                        className={`px-3 py-1.5 text-white text-xs font-medium rounded-md transition-colors duration-200 cursor-pointer ${
                           system.status === 'not connected'
                             ? 'bg-green-600 hover:bg-green-700'
                             : 'bg-blue-600 hover:bg-blue-700'
@@ -327,7 +327,7 @@ const SettingsPage = () => {
                         <button
                           onClick={refreshZendeskFieldNames}
                           disabled={isRefreshing}
-                          className="px-3 py-1.5 text-gray-600 text-xs font-medium rounded-md border border-gray-300 hover:bg-gray-50 transition-colors duration-200 disabled:opacity-50"
+                          className="px-3 py-1.5 text-gray-600 text-xs font-medium rounded-md border border-gray-300 hover:bg-gray-50 transition-colors duration-200 disabled:opacity-50 cursor-pointer"
                           title="Refresh custom field display names"
                         >
                           {isRefreshing ? (
@@ -377,7 +377,7 @@ const SettingsPage = () => {
                 {syncStatus?.isRunning ? (
                   <button
                     onClick={stopBackgroundService}
-                    className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors cursor-pointer"
                   >
                     <Square className="w-4 h-4" />
                     Stop Service
@@ -385,7 +385,7 @@ const SettingsPage = () => {
                 ) : (
                   <button
                     onClick={startBackgroundService}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors cursor-pointer"
                   >
                     <Play className="w-4 h-4" />
                     Start Service
@@ -394,7 +394,7 @@ const SettingsPage = () => {
                 <button
                   onClick={triggerManualSync}
                   disabled={isManualSyncing}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
                 >
                   <RefreshCw className={`w-4 h-4 ${isManualSyncing ? 'animate-spin' : ''}`} />
                   Manual Sync
@@ -489,7 +489,7 @@ const SettingsPage = () => {
             <h2 className="text-lg font-semibold text-gray-900">Field Mappings</h2>
             <button
               onClick={() => setShowAddMapping(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add Mapping
@@ -504,7 +504,7 @@ const SettingsPage = () => {
                 <p className="text-gray-500 text-sm mt-2">Create connections between fields in different systems</p>
                 <button
                   onClick={() => setShowAddMapping(true)}
-                  className="mt-4 text-purple-600 hover:text-purple-700 font-medium"
+                  className="mt-4 text-purple-600 hover:text-purple-700 font-medium cursor-pointer"
                 >
                   Create your first mapping
                 </button>
@@ -553,14 +553,14 @@ const SettingsPage = () => {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => setSelectedMapping(mapping)}
-                            className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                            className="p-2 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                             title="Edit mapping"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => deleteMapping(mapping.id)}
-                            className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                            className="p-2 text-gray-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Delete mapping"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -670,7 +670,7 @@ const SettingsPage = () => {
             <div className="flex justify-end gap-3 mt-6">
               <button
                 onClick={() => setShowAddMapping(false)}
-                className="px-4 py-2 text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer"
               >
                 Cancel
               </button>
@@ -704,7 +704,7 @@ const SettingsPage = () => {
                     addError('Failed to create mapping');
                   }
                 }}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 cursor-pointer"
               >
                 Create Mapping
               </button>
