@@ -6,9 +6,9 @@ const fetcher = (url) => fetch(url).then(res => res.json());
 export function useSyncService(organizationId) {
   const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch sync status
+  // Fetch combined sync status for both Zendesk and Jira
   const { data: syncStatus, error, mutate } = useSWR(
-    organizationId ? `/api/zendesk/sync-status?organizationId=${organizationId}` : null,
+    organizationId ? `/api/admin/services?organizationId=${organizationId}` : null,
     fetcher,
     {
       refreshInterval: 30000, // Refresh every 30 seconds
@@ -16,13 +16,13 @@ export function useSyncService(organizationId) {
     }
   );
 
-  // Start sync service
+  // Start both sync services (Zendesk and Jira)
   const startService = useCallback(async () => {
     if (!organizationId) return { success: false, error: 'Organization ID required' };
     
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/zendesk/sync-config?organizationId=${organizationId}`, {
+      const response = await fetch('/api/admin/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'start' })
@@ -32,23 +32,23 @@ export function useSyncService(organizationId) {
         await mutate(); // Refresh status
         return { success: true };
       } else {
-        throw new Error('Failed to start sync service');
+        throw new Error('Failed to start sync services');
       }
     } catch (error) {
-      console.error('Error starting sync service:', error);
+      console.error('Error starting sync services:', error);
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
     }
   }, [mutate, organizationId]);
 
-  // Stop sync service
+  // Stop both sync services (Zendesk and Jira)
   const stopService = useCallback(async () => {
     if (!organizationId) return { success: false, error: 'Organization ID required' };
     
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/zendesk/sync-config?organizationId=${organizationId}`, {
+      const response = await fetch('/api/admin/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'stop' })
@@ -58,36 +58,39 @@ export function useSyncService(organizationId) {
         await mutate(); // Refresh status
         return { success: true };
       } else {
-        throw new Error('Failed to stop sync service');
+        throw new Error('Failed to stop sync services');
       }
     } catch (error) {
-      console.error('Error stopping sync service:', error);
+      console.error('Error stopping sync services:', error);
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
     }
   }, [mutate, organizationId]);
 
-  // Trigger manual sync
+  // Trigger manual sync for both systems (Zendesk and Jira)
   const triggerSync = useCallback(async () => {
     if (!organizationId) return { success: false, error: 'Organization ID required' };
     
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/zendesk/sync-config?organizationId=${organizationId}`, {
+      const response = await fetch('/api/admin/services', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'trigger' })
+        body: JSON.stringify({ 
+          action: 'trigger',
+          organizationId: organizationId 
+        })
       });
       
       if (response.ok) {
         await mutate(); // Refresh status
         return { success: true };
       } else {
-        throw new Error('Failed to trigger sync');
+        throw new Error('Failed to trigger manual sync');
       }
     } catch (error) {
-      console.error('Error triggering sync:', error);
+      console.error('Error triggering manual sync:', error);
       return { success: false, error: error.message };
     } finally {
       setIsLoading(false);
@@ -95,7 +98,11 @@ export function useSyncService(organizationId) {
   }, [mutate, organizationId]);
 
   return {
-    syncStatus: syncStatus?.data || null,
+    syncStatus: syncStatus ? {
+      ...syncStatus.data,
+      isRunning: syncStatus.isRunning,
+      message: syncStatus.message
+    } : null,
     isLoading: isLoading || (!error && !syncStatus),
     isError: error,
     startService,
