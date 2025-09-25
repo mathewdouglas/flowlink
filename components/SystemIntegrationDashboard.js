@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, CheckCircle, Clock, X, Link, Edit3, Eye, EyeOff, ArrowRight, GripVertical, ChevronUp, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 import { useAllFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
@@ -23,6 +23,11 @@ const SystemIntegrationDashboard = () => {
   // Helper function to navigate to Zendesk tickets
   const navigateToZendeskTickets = () => {
     window.location.href = '/zendesk-tickets';
+  };
+
+  // Helper function to navigate to Jira issues
+  const navigateToJiraIssues = () => {
+    window.location.href = '/jira-issues';
   };
   
   // Zendesk setup modal state
@@ -61,7 +66,10 @@ const SystemIntegrationDashboard = () => {
           // Save the updated display names if any were added
           if (Object.keys(newDisplayNames).length > Object.keys(columnDisplayNames).length) {
             setColumnDisplayNames(newDisplayNames);
-            autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
+            // Defer the autoSaveConfig call to avoid render issues
+            setTimeout(() => {
+              autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
+            }, 0);
           }
         }
         
@@ -82,6 +90,9 @@ const SystemIntegrationDashboard = () => {
   const [selectedSystem, setSelectedSystem] = useState('all');
   const { records, pagination, isLoading, mutate } = useAllFlowRecords(CURRENT_ORG_ID, selectedSystem);
   const { config, saveConfig } = useDashboardConfig(CURRENT_USER_ID, CURRENT_ORG_ID);
+  
+  // Ref to track if autoSaveConfig is currently running
+  const autoSaveRunningRef = useRef(false);
   
   // Linking hooks with fallback empty arrays
   const { links = [], createLink, deleteLink } = useRecordLinks(CURRENT_ORG_ID) || {};
@@ -159,9 +170,15 @@ const SystemIntegrationDashboard = () => {
     }
   }, [config]);
 
-  // Auto-save configuration when columns change
+  // Auto-save configuration when columns change with debouncing
   const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true) => {
+    // Prevent multiple simultaneous saves
+    if (autoSaveRunningRef.current) {
+      return;
+    }
+    
     try {
+      autoSaveRunningRef.current = true;
       if (showStatus) setConfigSaveStatus('saving');
       await saveConfig({
         visibleColumns: columns,
@@ -181,6 +198,8 @@ const SystemIntegrationDashboard = () => {
         setConfigSaveStatus('error');
         setTimeout(() => setConfigSaveStatus(''), 3000);
       }
+    } finally {
+      autoSaveRunningRef.current = false;
     }
   }, [saveConfig]);
 
@@ -387,14 +406,7 @@ const SystemIntegrationDashboard = () => {
     teams: { status: 'checking', connected: false }
   });
 
-  // Check integration status when connections modal opens
-  useEffect(() => {
-    if (showConnectedSystems) {
-      checkAllIntegrationStatuses();
-    }
-  }, [showConnectedSystems]);
-
-  const checkAllIntegrationStatuses = async () => {
+  const checkAllIntegrationStatuses = useCallback(async () => {
     // Only check status for systems that have status APIs implemented
     const systemsWithStatusAPIs = ['zendesk', 'jira'];
     
@@ -414,32 +426,48 @@ const SystemIntegrationDashboard = () => {
         const response = await fetch(`/api/${system}/status`);
         if (response.ok) {
           const data = await response.json();
+          const status = data.connected ? 'connected' : 'not_configured';
           setIntegrationStatuses(prev => ({
             ...prev,
             [system]: {
-              status: data.connected ? 'connected' : 'not_configured',
+              status: status,
               connected: data.connected,
               message: data.message
             }
           }));
+          // Update the visual system status as well
+          updateSystemStatus(system === 'zendesk' ? 'Zendesk' : 'Jira', status);
         } else {
           setIntegrationStatuses(prev => ({
             ...prev,
             [system]: { status: 'error', connected: false, message: 'Failed to check status' }
           }));
+          // Update the visual system status as well
+          updateSystemStatus(system === 'zendesk' ? 'Zendesk' : 'Jira', 'error');
         }
       } catch (error) {
         setIntegrationStatuses(prev => ({
           ...prev,
           [system]: { status: 'error', connected: false, message: 'Network error' }
         }));
+        // Update the visual system status as well
+        updateSystemStatus(system === 'zendesk' ? 'Zendesk' : 'Jira', 'error');
       }
     }
-  };
+  }, []);
+
+  // Check integration status when connections modal opens
+  useEffect(() => {
+    if (showConnectedSystems) {
+      checkAllIntegrationStatuses();
+    }
+  }, [showConnectedSystems, checkAllIntegrationStatuses]);
 
   const navigateToTickets = (system) => {
     if (system === 'zendesk') {
       navigateToZendeskTickets();
+    } else if (system === 'jira') {
+      navigateToJiraIssues();
     } else {
       // For now, just filter the dashboard to show records from this system
       setSelectedSystem(system);
@@ -931,8 +959,10 @@ const SystemIntegrationDashboard = () => {
         [editingDisplayName.columnKey]: displayNameInput.trim()
       };
       setColumnDisplayNames(newDisplayNames);
-      // Auto-save the configuration with the new display names
-      autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
+      // Auto-save the configuration with the new display names (deferred)
+      setTimeout(() => {
+        autoSaveConfig(visibleColumns, columnOrder, newDisplayNames, graphsExpanded);
+      }, 0);
     }
     setEditingDisplayName(null);
     setDisplayNameInput('');
@@ -1407,6 +1437,7 @@ const SystemIntegrationDashboard = () => {
           checkAllIntegrationStatuses={checkAllIntegrationStatuses}
           navigateToTickets={navigateToTickets}
           navigateToZendeskTickets={navigateToZendeskTickets}
+          navigateToJiraIssues={navigateToJiraIssues}
           setShowZendeskSetup={setShowZendeskSetup}
         />
         

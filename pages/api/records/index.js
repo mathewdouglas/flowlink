@@ -66,11 +66,37 @@ export default async function handler(req, res) {
     }
 
     // Parse JSON fields for SQLite compatibility
-    const parsedRecords = records.map(record => ({
-      ...record,
-      labels: record.labels ? JSON.parse(record.labels) : [],
-      customFields: record.customFields ? JSON.parse(record.customFields) : {}
-    }));
+    const parsedRecords = records.map(record => {
+      let labels = [];
+      let customFields = {};
+      
+      // Safely parse labels
+      if (record.labels) {
+        try {
+          labels = JSON.parse(record.labels);
+        } catch (error) {
+          // Handle legacy data where labels might be a plain string
+          console.warn(`Invalid JSON in labels for record ${record.id}: ${record.labels}`);
+          labels = [record.labels]; // Convert string to array
+        }
+      }
+      
+      // Safely parse customFields
+      if (record.customFields) {
+        try {
+          customFields = JSON.parse(record.customFields);
+        } catch (error) {
+          console.warn(`Invalid JSON in customFields for record ${record.id}`);
+          customFields = {};
+        }
+      }
+      
+      return {
+        ...record,
+        labels,
+        customFields
+      };
+    });
 
     res.status(200).json({
       records: parsedRecords,

@@ -1,5 +1,6 @@
-import useSWR from 'swr';
+import useSWR, { mutate as globalMutate } from 'swr';
 import axios from 'axios';
+import { useCallback } from 'react';
 
 const fetcher = (url) => axios.get(url).then(res => res.data);
 
@@ -28,28 +29,21 @@ export function useDashboardConfig(userId, organizationId) {
     fetcher
   );
 
-  const saveConfig = async (config) => {
-    // Optimistically update the cache with a function
-    mutate(currentData => ({
-      ...currentData,
-      ...config
-    }), false);
-
+  const saveConfig = useCallback(async (config) => {
     try {
+      // Make the API call first
       await axios.post('/api/dashboard/config', {
         userId,
         organizationId,
         ...config
       });
-      // Revalidate after successful save
+      // Only update cache after successful save
       mutate();
     } catch (error) {
       console.error('Error saving dashboard config:', error);
-      // Revert optimistic update on error
-      mutate();
       throw error;
     }
-  };
+  }, [userId, organizationId, mutate]);
 
   return {
     config: data,

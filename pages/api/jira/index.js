@@ -1,5 +1,6 @@
 // API route for Jira integration management
 import prisma from '../../../lib/prisma';
+import { extractSubdomainFromUrl, createJiraAuthHeaders } from '../../../lib/jira-utils';
 
 // Hardcoded for demo - in production, get from auth context
 const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
@@ -7,25 +8,28 @@ const CURRENT_ORG_ID = 'cmfroy6570000pldk0c00apwg';
 export default async function handler(req, res) {
   if (req.method === 'POST') {
     try {
-      const { url, username, apiToken, projectKey, isActive } = req.body;
+      const { url, subdomain, username, apiToken, projectKey, components, excludeClosedIssues, isActive } = req.body;
 
       // Validate required fields
       if (!url || !username || !apiToken) {
         return res.status(400).json({ error: 'URL, username, and API token are required' });
       }
 
+      // Ensure we have the subdomain for storage (extract from URL if not provided)
+      let finalSubdomain = subdomain;
+      if (!finalSubdomain && url) {
+        finalSubdomain = extractSubdomainFromUrl(url);
+      }
+
       // Test the connection
       try {
-        const auth = Buffer.from(`${username}:${apiToken}`).toString('base64');
+        const headers = createJiraAuthHeaders(username, apiToken);
         const testUrl = projectKey
           ? `${url}/rest/api/3/project/${projectKey}`
           : `${url}/rest/api/3/myself`;
 
         const testResponse = await fetch(testUrl, {
-          headers: {
-            'Authorization': `Basic ${auth}`,
-            'Content-Type': 'application/json'
-          },
+          headers,
           timeout: 5000
         });
 
@@ -42,7 +46,11 @@ export default async function handler(req, res) {
 
       // Save or update credentials
       const customConfig = JSON.stringify({
-        projectKey: projectKey || null
+        projectKey: projectKey || null,
+        components: components || null,
+        excludeClosedIssues: excludeClosedIssues !== false,
+        subdomain: finalSubdomain,
+        url: url // Store the full URL in customConfig
       });
 
       const credentials = await prisma.integrationCredentials.upsert({
@@ -53,18 +61,18 @@ export default async function handler(req, res) {
           }
         },
         update: {
-          url,
-          username,
-          apiKey,
+          subdomain: finalSubdomain,
+          email: username, // Store username in email field for Jira
+          apiKey: apiToken,
           customConfig,
           isActive: isActive !== false
         },
         create: {
           organizationId: CURRENT_ORG_ID,
           systemType: 'jira',
-          url,
-          username,
-          apiKey,
+          subdomain: finalSubdomain,
+          email: username, // Store username in email field for Jira
+          apiKey: apiToken,
           customConfig,
           isActive: isActive !== false
         }

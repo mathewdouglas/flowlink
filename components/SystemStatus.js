@@ -10,6 +10,7 @@ const SystemStatus = ({
   checkAllIntegrationStatuses,
   navigateToTickets,
   navigateToZendeskTickets,
+  navigateToJiraIssues,
   setShowZendeskSetup
 }) => {
   // Helper functions
@@ -127,12 +128,10 @@ const SystemStatus = ({
                         </button>
                       ) : (
                         <button
-                          onClick={() => {
-                            setShowConnectedSystems(false);
-                          }}
-                          className="w-full text-xs px-3 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed"
+                          onClick={() => navigateToTickets('jira')}
+                          className="w-full text-xs px-3 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg transition-colors cursor-pointer"
                         >
-                          Coming Soon
+                          Configure & View
                         </button>
                       )}
                     </>

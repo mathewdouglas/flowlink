@@ -87,10 +87,13 @@ const RecordTable = ({
                     }
                   };
                   
-                  const getColumnWidth = (columnKey) => {
+                  const getColumnWidth = (columnKey, meta) => {
                     const [, field] = columnKey.split('.');
                     if (field === 'subject' || field === 'summary' || field === 'title' || field === 'description') {
                       return 'max-w-xs'; // Max width for text-heavy columns
+                    }
+                    if (meta && meta.type === 'boolean') {
+                      return 'w-16'; // Narrow width for boolean/checkbox columns
                     }
                     return '';
                   };
@@ -98,7 +101,7 @@ const RecordTable = ({
                   return (
                     <th 
                       key={columnKey} 
-                      className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey)} cursor-pointer hover:bg-gray-100 select-none`}
+                      className={`px-4 py-3 text-left text-xs font-medium ${getColorClass(meta.color || 'gray')} uppercase tracking-wider ${getColumnWidth(columnKey, meta)} cursor-pointer hover:bg-gray-100 select-none`}
                       onClick={() => handleSort(columnKey)}
                     >
                       {meta.label}
@@ -130,10 +133,18 @@ const RecordTable = ({
                   {getVisibleColumnsInOrder().map(columnKey => {
                     const cellRecord = getCellRecordForColumn(record, columnKey);
                     const [, field] = columnKey.split('.');
+                    const meta = currentColumnMetadata[columnKey];
                     const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
-                    const cellClass = isTextColumn 
-                      ? "px-4 py-2 align-middle max-w-xs group" 
-                      : "px-4 py-2 whitespace-nowrap align-middle group";
+                    const isBooleanColumn = meta && meta.type === 'boolean';
+                    
+                    let cellClass;
+                    if (isTextColumn) {
+                      cellClass = "px-4 py-2 align-middle max-w-xs group";
+                    } else if (isBooleanColumn) {
+                      cellClass = "px-4 py-2 whitespace-nowrap align-middle group w-16";
+                    } else {
+                      cellClass = "px-4 py-2 whitespace-nowrap align-middle group";
+                    }
                     
                     return (
                       <td key={columnKey} className={cellClass}>

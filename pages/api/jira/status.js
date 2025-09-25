@@ -29,7 +29,10 @@ export default async function handler(req, res) {
     }
 
     // Test the connection quickly
-    const { url, username, apiKey } = credentials;
+    const { email: username, apiKey } = credentials;
+    const customConfig = credentials.customConfig ? JSON.parse(credentials.customConfig) : {};
+    const url = customConfig.url; // Get URL from customConfig
+    
     const auth = Buffer.from(`${username}:${apiKey}`).toString('base64');
 
     try {

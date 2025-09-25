@@ -28,12 +28,15 @@ export default async function handler(req, res) {
     }
 
     // Return credentials (excluding sensitive data like API token for security)
+    const customConfig = credentials.customConfig ? JSON.parse(credentials.customConfig) : {};
+    
     return res.status(200).json({
       configured: true,
-      url: credentials.url,
-      username: credentials.username,
+      url: customConfig.url, // Read URL from customConfig
+      subdomain: credentials.subdomain || customConfig.subdomain,
+      username: credentials.email, // Username is stored in email field for Jira
       isActive: credentials.isActive,
-      customConfig: credentials.customConfig ? JSON.parse(credentials.customConfig) : {},
+      customConfig,
       createdAt: credentials.createdAt,
       updatedAt: credentials.updatedAt
     });

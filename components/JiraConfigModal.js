@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { isValidJiraSubdomain, constructJiraUrl } from '../lib/jira-utils';
 
 export default function JiraConfigModal({ isOpen, onClose }) {
-  const [url, setUrl] = useState('');
+  const [subdomain, setSubdomain] = useState('');
   const [username, setUsername] = useState('');
   const [apiToken, setApiToken] = useState('');
   const [projectKey, setProjectKey] = useState('');
+  const [components, setComponents] = useState('');
+  const [excludeClosedIssues, setExcludeClosedIssues] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [status, setStatus] = useState('idle'); // idle | loading | saving | success | error
   const [errors, setErrors] = useState({});
@@ -25,17 +28,27 @@ export default function JiraConfigModal({ isOpen, onClose }) {
       if (res.ok) {
         const data = await res.json();
         if (data.configured) {
-          setUrl(data.url || '');
+          // Extract subdomain from URL if it exists, or use subdomain directly
+          if (data.url) {
+            const urlMatch = data.url.match(/https:\/\/(.+?)\.atlassian\.net/);
+            setSubdomain(urlMatch ? urlMatch[1] : data.subdomain || '');
+          } else {
+            setSubdomain(data.subdomain || '');
+          }
           setUsername(data.username || '');
           setIsActive(data.isActive);
           setProjectKey(data.customConfig?.projectKey || '');
+          setComponents(data.customConfig?.components || '');
+          setExcludeClosedIssues(data.customConfig?.excludeClosedIssues !== false);
           setIsConfigured(true);
         } else {
           // No credentials configured yet
-          setUrl('');
+          setSubdomain('');
           setUsername('');
           setApiToken('');
           setProjectKey('');
+          setComponents('');
+          setExcludeClosedIssues(true);
           setIsActive(true);
           setIsConfigured(false);
         }
@@ -51,8 +64,11 @@ export default function JiraConfigModal({ isOpen, onClose }) {
 
   const validate = () => {
     const errs = {};
-    if (!url.trim()) errs.url = 'Jira URL is required.';
-    else if (!/^https?:\/\/.+/.test(url)) errs.url = 'Must be a valid HTTP/HTTPS URL.';
+    if (!subdomain.trim()) {
+      errs.subdomain = 'Jira subdomain is required.';
+    } else if (!isValidJiraSubdomain(subdomain.trim())) {
+      errs.subdomain = 'Must be a valid subdomain (letters, numbers, hyphens only).';
+    }
     if (!username.trim()) errs.username = 'Username/Email is required.';
     if (!apiToken.trim()) errs.apiToken = 'API token is required.';
     setErrors(errs);
@@ -64,11 +80,24 @@ export default function JiraConfigModal({ isOpen, onClose }) {
     if (!validate()) return;
     setStatus('saving');
     setErrorMessage('');
+    
+    // Construct the full URL from the subdomain
+    const fullUrl = constructJiraUrl(subdomain.trim());
+    
     try {
       const res = await fetch('/api/jira', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, username, apiToken, projectKey, isActive })
+        body: JSON.stringify({ 
+          url: fullUrl, 
+          subdomain: subdomain.trim(), 
+          username: username.trim(), 
+          apiToken, 
+          projectKey: projectKey.trim(), 
+          components: components.trim(),
+          excludeClosedIssues,
+          isActive 
+        })
       });
       if (res.ok) {
         setStatus('success');
@@ -117,17 +146,21 @@ export default function JiraConfigModal({ isOpen, onClose }) {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-800 mb-1">Jira URL</label>
-              <input
-                type="url"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                placeholder="https://yourcompany.atlassian.net"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-                required
-              />
-              <span className="text-xs text-gray-500">Your Jira instance URL</span>
-              {errors.url && <div className="text-xs text-red-600 mt-1 font-medium">{errors.url}</div>}
+              <label className="block text-sm font-medium text-gray-800 mb-1">Jira Subdomain</label>
+              <div className="flex items-center">
+                <span className="text-gray-500 text-sm mr-2">https://</span>
+                <input
+                  type="text"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                  placeholder="yourcompany"
+                  value={subdomain}
+                  onChange={e => setSubdomain(e.target.value)}
+                  required
+                />
+                <span className="text-gray-500 text-sm ml-2">.atlassian.net</span>
+              </div>
+              <span className="text-xs text-gray-500">Your Jira subdomain (without https:// or .atlassian.net)</span>
+              {errors.subdomain && <div className="text-xs text-red-600 mt-1 font-medium">{errors.subdomain}</div>}
             </div>
 
             <div>
@@ -175,6 +208,35 @@ export default function JiraConfigModal({ isOpen, onClose }) {
             <span className="text-xs text-gray-500">
               Filter issues to a specific project. Leave empty to sync all accessible projects.
             </span>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-800 mb-1">Components (Optional)</label>
+            <input
+              type="text"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+              placeholder="Rapid Response, Backend, Frontend"
+              value={components}
+              onChange={e => setComponents(e.target.value)}
+            />
+            <span className="text-xs text-gray-500">
+              Comma-separated list of component names to filter by. Leave empty to include all components.
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center">
+              <input
+                id="jira-excludeClosed"
+                type="checkbox"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                checked={excludeClosedIssues}
+                onChange={e => setExcludeClosedIssues(e.target.checked)}
+              />
+              <label htmlFor="jira-excludeClosed" className="ml-2 block text-sm text-gray-900">
+                Only sync open issues (exclude closed/resolved issues)
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center">
