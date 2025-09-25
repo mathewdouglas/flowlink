@@ -2,7 +2,7 @@
 // This ensures both Zendesk and Jira background sync services start when the server starts
 
 import zendeskSyncService from '../../../lib/zendesk-sync-service';
-import { jiraSyncService } from '../../../lib/service-init';
+import jiraSyncService from '../../../lib/jira-sync-service';
 import prisma from '../../../lib/prisma';
 
 let isServiceInitialized = false;
