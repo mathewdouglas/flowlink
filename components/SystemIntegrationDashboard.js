@@ -5,6 +5,7 @@ import { Plus, Settings, ExternalLink, RefreshCw, Filter, Search, AlertCircle, C
 import Image from 'next/image';
 import { useAllFlowRecords, useDashboardConfig } from '../hooks/useFlowLink';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
+import { useLinkedRecords } from '../hooks/useLinkedRecords';
 import { useCustomColumns } from '../hooks/useCustomColumns';
 import ZendeskSetupForm from './ZendeskSetupForm';
 import CustomColumnForm from './CustomColumnForm';
@@ -88,7 +89,88 @@ const SystemIntegrationDashboard = () => {
 
   // Database hooks for real data
   const [selectedSystem, setSelectedSystem] = useState('all');
-  const { records, pagination, isLoading, mutate } = useAllFlowRecords(CURRENT_ORG_ID, selectedSystem);
+  
+  // Use linked records instead of individual records
+  const { linkedRecords: linkedRecordsData, stats: linkedStats, isLoading: isLinkedLoading, mutate: mutateLinked } = useLinkedRecords(CURRENT_ORG_ID);
+  
+  // Keep the old hook for backward compatibility during development
+  const { records: individualRecords, pagination, isLoading: isIndividualLoading, mutate } = useAllFlowRecords(CURRENT_ORG_ID, selectedSystem);
+  
+  // Use linked records by default, fallback to individual records if needed
+  const shouldUseLinkedRecords = linkedRecordsData.length > 0;
+  
+  // Transform linked records data to match the expected structure for the table
+  const processLinkedRecordsData = (linkedRecordsData) => {
+    return linkedRecordsData.map(linkedRecord => {
+      // For linked pairs, create a synthetic record that represents the combination
+      if (linkedRecord.records && Object.keys(linkedRecord.records).length > 1) {
+        // This is a linked pair - create a combined record
+        const systems = Object.keys(linkedRecord.records);
+        // Use the sourceSystem as the primary system, not the first key
+        const primarySystem = linkedRecord.sourceSystem;
+        const primaryRecord = linkedRecord.records[primarySystem];
+        
+        // Get all other systems for linkedRecords array
+        const otherSystems = systems.filter(system => system !== primarySystem);
+        
+        const result = {
+          ...primaryRecord,
+          id: linkedRecord.id,
+          isLinkedPair: true,
+          linkedRecords: otherSystems.map(system => linkedRecord.records[system]),
+          hasLinks: true,
+          combinedData: linkedRecord.combinedData,
+          mappingName: linkedRecord.mappingName,
+          sourceSystem: linkedRecord.sourceSystem,
+          targetSystem: linkedRecord.targetSystem,
+          linkedField: linkedRecord.linkedField,
+          linkedValue: linkedRecord.linkedValue
+        };
+        
+        // Debug the transformation
+        console.log(`DEBUG processLinkedRecordsData:`, {
+          originalSourceSystem: linkedRecord.sourceSystem,
+          systems,
+          primarySystem,
+          primaryRecordStatus: primaryRecord.status,
+          primaryRecordSourceSystem: primaryRecord.sourceSystem,
+          resultSourceSystem: result.sourceSystem,
+          resultStatus: result.status,
+          linkedRecordsStatuses: result.linkedRecords.map(lr => ({system: lr.sourceSystem, status: lr.status}))
+        });
+        
+        return result;
+      } else {
+        // This is an individual record - keep as is
+        const singleSystem = Object.keys(linkedRecord.records)[0];
+        return {
+          ...linkedRecord.records[singleSystem],
+          isLinkedPair: false,
+          linkedRecords: [],
+          hasLinks: false,
+          isUnlinked: linkedRecord.isUnlinked
+        };
+      }
+    });
+  };
+  
+  const records = shouldUseLinkedRecords ? processLinkedRecordsData(linkedRecordsData) : individualRecords;
+  const isLoading = isLinkedLoading || isIndividualLoading;
+
+  // Debug: Log what types of records we're working with
+  console.log('DEBUG records being processed:', records.slice(0, 3).map(r => ({
+    id: r.id,
+    sourceSystem: r.sourceSystem,
+    isLinkedPair: r.isLinkedPair,
+    hasLinks: r.hasLinks,
+    linkedRecordsCount: r.linkedRecords ? r.linkedRecords.length : 0,
+    linkedRecordSystems: r.linkedRecords ? r.linkedRecords.map(lr => lr.sourceSystem) : []
+  })));
+  
+  // Check if we actually have linked pairs (not just individual records from the API)
+  const hasActualLinkedPairs = shouldUseLinkedRecords && 
+    linkedRecordsData.some(record => record.records && Object.keys(record.records).length > 1);
+  
   const { config, saveConfig } = useDashboardConfig(CURRENT_USER_ID, CURRENT_ORG_ID);
   
   // Ref to track if autoSaveConfig is currently running
@@ -162,13 +244,31 @@ const SystemIntegrationDashboard = () => {
       setColumnDisplayNames(config.columnDisplayNames || {});
       setGraphsExpanded(config.graphsExpanded !== false); // Default to true if not set
     } else {
-      // Set default visible columns if no config exists
-      setVisibleColumns(DEFAULT_COLUMNS);
-      setColumnOrder(DEFAULT_COLUMNS);
+      // Set default visible columns based on whether we have linked records
+      let defaultColumns = DEFAULT_COLUMNS;
+      
+      if (shouldUseLinkedRecords && hasActualLinkedPairs) {
+        // Add linked record columns to default view
+        const linkedColumns = [
+          'mappingName',
+          'linkedField', 
+          'linkedValue',
+          'zendesk_id',
+          'zendesk_subject',
+          'zendesk_status',
+          'jira_id',
+          'jira_subject', 
+          'jira_status'
+        ];
+        defaultColumns = [...linkedColumns];
+      }
+      
+      setVisibleColumns(defaultColumns);
+      setColumnOrder(defaultColumns);
       setColumnDisplayNames({});
       setGraphsExpanded(true); // Default to expanded
     }
-  }, [config]);
+  }, [config, shouldUseLinkedRecords, hasActualLinkedPairs]);
 
   // Auto-save configuration when columns change with debouncing
   const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true) => {
@@ -286,6 +386,84 @@ const SystemIntegrationDashboard = () => {
       };
     });
 
+    // Add linked record columns for different system combinations
+    if (hasActualLinkedPairs) {
+      // Dynamically add columns based on active mappings
+      const activeMappings = linkedRecordsData
+        .filter(record => record.mappingId && !record.isUnlinked)
+        .map(record => ({ sourceSystem: record.sourceSystem, targetSystem: record.targetSystem }))
+        .filter((mapping, index, self) => 
+          self.findIndex(m => m.sourceSystem === mapping.sourceSystem && m.targetSystem === mapping.targetSystem) === index
+        );
+
+      activeMappings.forEach(mapping => {
+        // Add columns for each system in the mapping
+        systemColumns[`${mapping.sourceSystem}_id`] = {
+          label: `${mapping.sourceSystem.charAt(0).toUpperCase() + mapping.sourceSystem.slice(1)} ID`,
+          color: 'blue',
+          group: 'linked',
+          type: 'string'
+        };
+        
+        systemColumns[`${mapping.targetSystem}_id`] = {
+          label: `${mapping.targetSystem.charAt(0).toUpperCase() + mapping.targetSystem.slice(1)} ID`,
+          color: 'green',
+          group: 'linked',
+          type: 'string'
+        };
+        
+        systemColumns[`${mapping.sourceSystem}_subject`] = {
+          label: `${mapping.sourceSystem.charAt(0).toUpperCase() + mapping.sourceSystem.slice(1)} Subject`,
+          color: 'blue',
+          group: 'linked',
+          type: 'string'
+        };
+        
+        systemColumns[`${mapping.targetSystem}_subject`] = {
+          label: `${mapping.targetSystem.charAt(0).toUpperCase() + mapping.targetSystem.slice(1)} Subject`,
+          color: 'green',
+          group: 'linked',
+          type: 'string'
+        };
+        
+        systemColumns[`${mapping.sourceSystem}_status`] = {
+          label: `${mapping.sourceSystem.charAt(0).toUpperCase() + mapping.sourceSystem.slice(1)} Status`,
+          color: 'blue',
+          group: 'linked',
+          type: 'string'
+        };
+        
+        systemColumns[`${mapping.targetSystem}_status`] = {
+          label: `${mapping.targetSystem.charAt(0).toUpperCase() + mapping.targetSystem.slice(1)} Status`,
+          color: 'green',
+          group: 'linked',
+          type: 'string'
+        };
+      });
+      
+      // Add linking info columns
+      systemColumns['linkedField'] = {
+        label: 'Linked Field',
+        color: 'purple',
+        group: 'linked',
+        type: 'string'
+      };
+      
+      systemColumns['linkedValue'] = {
+        label: 'Linked Value',
+        color: 'purple',
+        group: 'linked',
+        type: 'string'
+      };
+      
+      systemColumns['mappingName'] = {
+        label: 'Mapping',
+        color: 'purple',
+        group: 'linked',
+        type: 'string'
+      };
+    }
+
     // Add custom columns
     const customColumnMetadata = {};
     customColumns.forEach(column => {
@@ -305,9 +483,25 @@ const SystemIntegrationDashboard = () => {
 
     // Collect unique Zendesk custom field IDs from records
     records.forEach(record => {
-      if (record.sourceSystem === 'zendesk' && record.customFields) {
+      // Handle both linked records and individual records
+      let zendeskRecord = null;
+      
+      if (record.isLinkedPair && record.records && record.records.zendesk) {
+        // This is a linked record - get the Zendesk record from the nested structure
+        zendeskRecord = record.records.zendesk;
+      } else if (record.sourceSystem === 'zendesk') {
+        // This is an individual Zendesk record
+        zendeskRecord = record;
+      }
+      
+      if (zendeskRecord && zendeskRecord.customFields) {
         try {
-          const customFields = record.customFields; // Already parsed by API
+          // Handle both string and object formats for customFields
+          let customFields = zendeskRecord.customFields;
+          if (typeof customFields === 'string') {
+            customFields = JSON.parse(customFields);
+          }
+          
           // Find numeric keys (Zendesk custom field IDs)
           Object.keys(customFields).forEach(key => {
             if (/^\d+$/.test(key)) { // Only numeric keys
@@ -315,26 +509,78 @@ const SystemIntegrationDashboard = () => {
             }
           });
         } catch (error) {
+          console.warn('Error parsing Zendesk custom fields:', error, zendeskRecord.customFields);
           // Ignore parsing errors
         }
       }
     });
 
-    // Add Zendesk custom fields to metadata
-    zendeskCustomFieldIds.forEach(fieldId => {
+    // Add Zendesk custom fields to metadata (limit to reasonable number and filter out unused ones)
+    const commonlyUsedFields = Array.from(zendeskCustomFieldIds)
+      .slice(0, 50) // Limit to first 50 fields to prevent UI overload
+      .filter(fieldId => {
+        // Only include fields that have actual values in the data
+        let hasValue = false;
+        for (const record of records) {
+          let zendeskRecord = null;
+          
+          if (record.isLinkedPair && record.records && record.records.zendesk) {
+            zendeskRecord = record.records.zendesk;
+          } else if (record.sourceSystem === 'zendesk') {
+            zendeskRecord = record;
+          }
+          
+          if (zendeskRecord && zendeskRecord.customFields) {
+            try {
+              let customFields = zendeskRecord.customFields;
+              if (typeof customFields === 'string') {
+                customFields = JSON.parse(customFields);
+              }
+              
+              const value = customFields[fieldId];
+              if (value !== null && value !== undefined && value !== '') {
+                hasValue = true;
+                break;
+              }
+            } catch (error) {
+              // Ignore parsing errors
+            }
+          }
+        }
+        return hasValue;
+      });
+      
+    commonlyUsedFields.forEach(fieldId => {
       // Determine if this field should be treated as boolean by checking values
       let isBooleanField = false;
       const seenValues = new Set();
       
       records.forEach(record => {
-        if (record.sourceSystem === 'zendesk' && record.customFields) {
+        // Handle both linked records and individual records
+        let zendeskRecord = null;
+        
+        if (record.isLinkedPair && record.records && record.records.zendesk) {
+          // This is a linked record - get the Zendesk record from the nested structure
+          zendeskRecord = record.records.zendesk;
+        } else if (record.sourceSystem === 'zendesk') {
+          // This is an individual Zendesk record
+          zendeskRecord = record;
+        }
+        
+        if (zendeskRecord && zendeskRecord.customFields) {
           try {
-            const customFields = record.customFields;
+            // Handle both string and object formats for customFields
+            let customFields = zendeskRecord.customFields;
+            if (typeof customFields === 'string') {
+              customFields = JSON.parse(customFields);
+            }
+            
             const value = customFields[fieldId];
             if (value !== null && value !== undefined && value !== '') {
               seenValues.add(value);
             }
           } catch (error) {
+            console.warn('Error parsing custom fields for field', fieldId, ':', error);
             // Ignore parsing errors
           }
         }
@@ -359,7 +605,7 @@ const SystemIntegrationDashboard = () => {
     });
 
     return { ...systemColumns, ...customColumnMetadata, ...zendeskCustomFieldMetadata };
-  }, [records, customColumns, columnMetadata, columnDisplayNames]);
+  }, [records, customColumns, columnMetadata, columnDisplayNames, linkedRecordsData, hasActualLinkedPairs]);
 
   // Drag and drop state
   const [draggedColumn, setDraggedColumn] = useState(null);
@@ -976,10 +1222,64 @@ const SystemIntegrationDashboard = () => {
   const renderTableCell = (record, columnKey) => {
     const meta = currentColumnMetadata[columnKey];
     
+    // Return empty cell if record is null (system doesn't exist for this record)
+    if (record === null) {
+      return <span className="text-gray-500 font-medium italic">-</span>;
+    }
+    
     // Return empty cell if metadata doesn't exist
     if (!meta) {
       console.warn(`No metadata found for column: ${columnKey}`);
       return <span className="text-gray-500">-</span>;
+    }
+    
+    // Handle linked record columns (new structure)
+    if (meta.group === 'linked' && record.isLinkedPair && record.combinedData) {
+      const value = record.combinedData[columnKey];
+      if (value === null || value === undefined) {
+        return <span className="text-gray-500">-</span>;
+      }
+      
+      // Special rendering for different linked column types
+      switch (columnKey) {
+        case 'mappingName':
+          return (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              {value}
+            </span>
+          );
+        case 'linkedField':
+          return (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+              {value}
+            </span>
+          );
+        case 'linkedValue':
+          return (
+            <span className="font-medium text-gray-900">{value}</span>
+          );
+        default:
+          // For system-specific fields (zendesk_id, jira_subject, etc.)
+          if (columnKey.includes('_id')) {
+            return (
+              <span className="font-mono text-sm text-gray-700">{value}</span>
+            );
+          } else if (columnKey.includes('_status')) {
+            return (
+              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(value)}`}>
+                {value}
+              </span>
+            );
+          } else if (columnKey.includes('_subject')) {
+            return (
+              <span className="text-gray-900" title={value}>
+                {truncateText(value, 60)}
+              </span>
+            );
+          } else {
+            return <span className="text-gray-900">{value}</span>;
+          }
+      }
     }
     
     const [system, field] = columnKey.split('.');
@@ -1130,56 +1430,61 @@ const SystemIntegrationDashboard = () => {
     
     // Get value from record based on system and field mapping
     let value;
-    if (record.sourceSystem === system) {
+    
+    // The record passed in is already the correct record for this column
+    // (RecordTable uses getCellRecordForColumn before calling renderTableCell)
+    const targetRecord = record;
+    
+    if (targetRecord) {
       switch (field) {
         case 'id':
         case 'key':
         case 'number':
         case 'case_number':
         case 'message_id':
-          value = record.sourceId;
+          value = targetRecord.sourceId;
           break;
         case 'subject':
         case 'summary':
         case 'title':
-          value = record.title;
+          value = targetRecord.title;
           break;
         case 'description':
-          value = record.description;
+          value = targetRecord.description;
           break;
         case 'status':
         case 'state':
-          value = record.status;
+          value = targetRecord.status;
           break;
         case 'priority':
-          value = record.priority;
+          value = targetRecord.priority;
           break;
         case 'assignee':
         case 'owner':
-          value = record.assigneeName || record.assigneeEmail;
+          value = targetRecord.assigneeName || targetRecord.assigneeEmail;
           break;
         case 'reporter':
         case 'requester':
         case 'author':
         case 'user':
         case 'from':
-          value = record.reporterName || record.reporterEmail;
+          value = targetRecord.reporterName || targetRecord.reporterEmail;
           break;
         case 'created_at':
         case 'created':
         case 'timestamp':
         case 'created_datetime':
-          value = record.sourceCreatedAt;
+          value = targetRecord.sourceCreatedAt;
           break;
         case 'updated_at':
         case 'updated':
-          value = record.sourceUpdatedAt;
+          value = targetRecord.sourceUpdatedAt;
           break;
         case 'labels':
         case 'tags':
           // Parse JSON string back to array
           try {
-            value = record.labels ? JSON.parse(record.labels) : [];
+            value = targetRecord.labels ? JSON.parse(targetRecord.labels) : [];
           } catch {
             value = [];
           }
@@ -1187,7 +1492,7 @@ const SystemIntegrationDashboard = () => {
         case 'channel':
           // Extract channel from customFields.via.channel
           try {
-            const customFields = getCustomFields(record);
+            const customFields = getCustomFields(targetRecord);
             value = customFields.via?.channel || customFields.channel || '-';
           } catch {
             value = '-';
@@ -1203,7 +1508,7 @@ const SystemIntegrationDashboard = () => {
         case 'is_public':
           // Get from customFields
           try {
-            const customFields = getCustomFields(record);
+            const customFields = getCustomFields(targetRecord);
             value = customFields[field];
             value = value || '-';
           } catch {
@@ -1213,7 +1518,7 @@ const SystemIntegrationDashboard = () => {
         case 'due_at':
           // Get due date from customFields
           try {
-            const customFields = getCustomFields(record);
+            const customFields = getCustomFields(targetRecord);
             value = customFields.due_at;
           } catch {
             value = '-';
@@ -1224,7 +1529,7 @@ const SystemIntegrationDashboard = () => {
           if (field.startsWith('custom_')) {
             const fieldId = field.substring(7); // Remove 'custom_' prefix
             try {
-              const customFields = getCustomFields(record);
+              const customFields = getCustomFields(targetRecord);
               value = customFields[fieldId] || '-';
             } catch {
               value = '-';
@@ -1232,7 +1537,7 @@ const SystemIntegrationDashboard = () => {
           } else {
             // Try to get from customFields
             try {
-              const customFields = getCustomFields(record);
+              const customFields = getCustomFields(targetRecord);
               value = customFields[field] || '-';
             } catch {
               value = '-';
@@ -1247,7 +1552,7 @@ const SystemIntegrationDashboard = () => {
       return <span className="text-gray-500 font-medium italic">-</span>;
     }
 
-    const color = getSystemColor(record.sourceSystem);
+    const color = getSystemColor(targetRecord.sourceSystem);
     
     // Special handling for boolean values - render as checkboxes
     if (typeof value === 'boolean' || (typeof value === 'string' && (value === 'Yes' || value === 'No'))) {

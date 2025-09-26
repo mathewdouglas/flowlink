@@ -52,7 +52,10 @@ async function handlePost(req, res) {
       sourceField, 
       targetSystem, 
       targetField, 
-      mappingName 
+      mappingName,
+      sourceTransform,
+      targetTransform,
+      transformationType
     } = req.body;
 
     if (!organizationId || !sourceSystem || !sourceField || !targetSystem || !targetField || !mappingName) {
@@ -84,7 +87,10 @@ async function handlePost(req, res) {
         sourceField,
         targetSystem,
         targetField,
-        mappingName
+        mappingName,
+        sourceTransform: sourceTransform ? JSON.stringify(sourceTransform) : null,
+        targetTransform: targetTransform ? JSON.stringify(targetTransform) : null,
+        transformationType
       }
     });
 
@@ -98,7 +104,15 @@ async function handlePost(req, res) {
 // Update a field mapping
 async function handlePut(req, res) {
   try {
-    const { mappingId, organizationId, mappingName, isActive } = req.body;
+    const { 
+      mappingId, 
+      organizationId, 
+      mappingName, 
+      isActive,
+      sourceTransform,
+      targetTransform,
+      transformationType
+    } = req.body;
 
     if (!mappingId || !organizationId) {
       return res.status(400).json({ message: 'Mapping ID and organization ID are required' });
@@ -107,6 +121,13 @@ async function handlePut(req, res) {
     const updateData = {};
     if (mappingName !== undefined) updateData.mappingName = mappingName;
     if (isActive !== undefined) updateData.isActive = isActive;
+    if (sourceTransform !== undefined) {
+      updateData.sourceTransform = sourceTransform ? JSON.stringify(sourceTransform) : null;
+    }
+    if (targetTransform !== undefined) {
+      updateData.targetTransform = targetTransform ? JSON.stringify(targetTransform) : null;
+    }
+    if (transformationType !== undefined) updateData.transformationType = transformationType;
 
     const mapping = await prisma.fieldMapping.updateMany({
       where: {

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Settings, RefreshCw, AlertCircle, CheckCircle, Clock, X, Link, ArrowRight, Eye, EyeOff, Plus, Edit3, Trash2, Play, Square, RotateCcw } from 'lucide-react';
 import Image from 'next/image';
 import { useRecordLinks, useFieldMappings } from '../hooks/useRecordLinking';
@@ -9,6 +9,7 @@ import { useErrors } from '../context/AppContext';
 import { LoadingSpinner, ErrorMessage, Modal, Button, Card } from '../components/UI/CommonComponents';
 import ZendeskConfigModal from '../components/ZendeskConfigModal';
 import JiraConfigModal from '../components/JiraConfigModal';
+import FieldTransformationConfig from '../components/FieldTransformationConfig';
 import { APP_CONSTANTS } from '../lib/constants';
 
 // This would come from your auth system - using the actual seeded org ID
@@ -34,6 +35,7 @@ const SettingsPage = () => {
   const [showAddMapping, setShowAddMapping] = useState(false);
   const [selectedMapping, setSelectedMapping] = useState(null);
   const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [mappingToDelete, setMappingToDelete] = useState(null);
 
   // Add mapping form state
   const [sourceSystem, setSourceSystem] = useState('Zendesk');
@@ -41,21 +43,45 @@ const SettingsPage = () => {
   const [targetSystem, setTargetSystem] = useState('Jira');
   const [targetField, setTargetField] = useState('id');
   const [mappingName, setMappingName] = useState('');
+  
+  // Field transformation state
+  const [sourceTransform, setSourceTransform] = useState(null);
+  const [targetTransform, setTargetTransform] = useState(null);
+
+  // Field options state
+  const [sourceFields, setSourceFields] = useState([]);
+  const [targetFields, setTargetFields] = useState([]);
+  const [loadingSourceFields, setLoadingSourceFields] = useState(false);
+  const [loadingTargetFields, setLoadingTargetFields] = useState(false);
+
+  // Ref to track if we've checked connectivity
+  const hasCheckedConnectivity = useRef(false);
+  
+  // Refs to prevent duplicate API calls
+  const loadingSourceFieldsRef = useRef(false);
+  const loadingTargetFieldsRef = useRef(false);
+  
+  // Stable reference to addError to avoid dependency issues
+  const addErrorRef = useRef(addError);
+  addErrorRef.current = addError;
+  
+  // Stable reference to updateSystemStatus
+  const updateSystemStatusRef = useRef();
 
   // Connected systems state
   const [connectedSystems, setConnectedSystems] = useState([
-    { id: 1, name: 'Zendesk', type: 'support', status: 'pending', color: 'bg-yellow-500' },
-    { id: 2, name: 'Jira', type: 'project', status: 'not connected', color: 'bg-gray-500' },
-    { id: 3, name: 'Slack', type: 'communication', status: 'not connected', color: 'bg-gray-500' },
-    { id: 4, name: 'GitHub', type: 'development', status: 'not connected', color: 'bg-gray-500' },
-    { id: 5, name: 'Salesforce', type: 'crm', status: 'not connected', color: 'bg-gray-500' },
-    { id: 6, name: 'Teams', type: 'communication', status: 'not connected', color: 'bg-gray-500' }
+    { id: 'zendesk', name: 'Zendesk', type: 'ticketing', status: 'not connected', color: 'bg-gray-500' },
+    { id: 'jira', name: 'Jira', type: 'project management', status: 'not connected', color: 'bg-gray-500' },
+    { id: 'slack', name: 'Slack', type: 'messaging', status: 'not connected', color: 'bg-gray-500' },
+    { id: 'github', name: 'GitHub', type: 'code repository', status: 'not connected', color: 'bg-gray-500' },
+    { id: 'salesforce', name: 'Salesforce', type: 'crm', status: 'not connected', color: 'bg-gray-500' },
+    { id: 'teams', name: 'Teams', type: 'messaging', status: 'not connected', color: 'bg-gray-500' }
   ]);
 
   // Helper to update a system's status and color
-  const updateSystemStatus = (systemName, status) => {
+  const updateSystemStatus = useCallback((systemName, status) => {
     setConnectedSystems(prev => prev.map(sys => {
-      if (sys.name === systemName) {
+      if (sys.id === systemName || sys.name === systemName) {
         let color;
         switch (status) {
           case 'connected': color = 'bg-green-500'; break;
@@ -68,7 +94,10 @@ const SettingsPage = () => {
       }
       return sys;
     }));
-  };
+  }, []);
+
+  // Update the ref whenever the function changes
+  updateSystemStatusRef.current = updateSystemStatus;
 
   // Check Zendesk connection status
   const checkZendeskConnection = useCallback(async () => {
@@ -88,7 +117,7 @@ const SettingsPage = () => {
     } catch {
       updateSystemStatus('Zendesk', 'error');
     }
-  }, []);
+  }, [updateSystemStatus]);
 
   // Check Jira connection status
   const checkJiraConnection = useCallback(async () => {
@@ -108,7 +137,7 @@ const SettingsPage = () => {
     } catch {
       updateSystemStatus('Jira', 'error');
     }
-  }, []);
+  }, [updateSystemStatus]);
 
   // Check connection status on mount
   useEffect(() => {
@@ -152,6 +181,181 @@ const SettingsPage = () => {
       setIsManualSyncing(false);
     }
   }, [triggerSync, addError]);
+
+  // Handle mapping deletion with confirmation
+  const handleDeleteMapping = async () => {
+    if (!mappingToDelete) return;
+    
+    console.log('Deleting mapping:', mappingToDelete);
+    
+    try {
+      await deleteMapping(mappingToDelete.id);
+      console.log('Mapping deleted successfully');
+      setMappingToDelete(null);
+    } catch (error) {
+      console.error('Failed to delete mapping:', error);
+      addError('Failed to delete field mapping');
+    }
+  };
+
+  // Load available fields for a system
+  const loadFieldsForSystem = useCallback(async (system, isSource = true) => {
+    // Prevent duplicate calls
+    const loadingRef = isSource ? loadingSourceFieldsRef : loadingTargetFieldsRef;
+    if (loadingRef.current) {
+      return;
+    }
+    
+    const setLoading = isSource ? setLoadingSourceFields : setLoadingTargetFields;
+    const setFields = isSource ? setSourceFields : setTargetFields;
+    
+    try {
+      setLoading(true);
+      loadingRef.current = true;
+      let fields = [];
+
+      if (system === 'Zendesk') {
+        // Load Zendesk fields (standard + custom)
+        try {
+          // Get credentials first
+          const credentialsResponse = await fetch('/api/zendesk/credentials');
+          if (credentialsResponse.ok) {
+            const credentials = await credentialsResponse.json();
+            
+            // Get custom fields
+            const customFieldsResponse = await fetch(
+              `/api/zendesk/custom-fields?subdomain=${credentials.subdomain}&email=${encodeURIComponent(credentials.email)}&apiKey=${encodeURIComponent(credentials.apiKey)}`
+            );
+            
+            if (customFieldsResponse.ok) {
+              const customFieldsData = await customFieldsResponse.json();
+              const customFields = customFieldsData.customFields || [];
+              
+              // Add standard Zendesk fields
+              fields = [
+                { key: 'id', title: 'ID', type: 'system' },
+                { key: 'subject', title: 'Subject', type: 'system' },
+                { key: 'description', title: 'Description', type: 'system' },
+                { key: 'status', title: 'Status', type: 'system' },
+                { key: 'priority', title: 'Priority', type: 'system' },
+                { key: 'assignee_id', title: 'Assignee ID', type: 'system' },
+                { key: 'requester_id', title: 'Requester ID', type: 'system' },
+                { key: 'group_id', title: 'Group ID', type: 'system' },
+                { key: 'organization_id', title: 'Organization ID', type: 'system' },
+                { key: 'created_at', title: 'Created At', type: 'system' },
+                { key: 'updated_at', title: 'Updated At', type: 'system' },
+                ...customFields.map(field => ({
+                  key: `custom_${field.id}`,
+                  title: field.title,
+                  type: 'custom',
+                  fieldType: field.type  // Use 'type' from API response, not 'fieldType'
+                }))
+              ];
+            } else {
+              console.error('Failed to fetch custom fields:', customFieldsResponse.status, customFieldsResponse.statusText);
+            }
+          }
+        } catch (error) {
+          console.error('Failed to load Zendesk fields:', error);
+          // Fallback to basic fields
+          fields = [
+            { key: 'id', title: 'ID', type: 'system' },
+            { key: 'subject', title: 'Subject', type: 'system' },
+            { key: 'status', title: 'Status', type: 'system' },
+            { key: 'priority', title: 'Priority', type: 'system' },
+            { key: 'assignee_id', title: 'Assignee ID', type: 'system' }
+          ];
+        }
+      } else if (system === 'Jira') {
+        // Load Jira fields (we'll need to add Jira fields API later)
+        fields = [
+          { key: 'id', title: 'ID', type: 'system' },
+          { key: 'key', title: 'Issue Key', type: 'system' },
+          { key: 'summary', title: 'Summary', type: 'system' },
+          { key: 'description', title: 'Description', type: 'system' },
+          { key: 'status', title: 'Status', type: 'system' },
+          { key: 'priority', title: 'Priority', type: 'system' },
+          { key: 'assignee', title: 'Assignee', type: 'system' },
+          { key: 'reporter', title: 'Reporter', type: 'system' },
+          { key: 'issuetype', title: 'Issue Type', type: 'system' },
+          { key: 'created', title: 'Created', type: 'system' },
+          { key: 'updated', title: 'Updated', type: 'system' }
+        ];
+      } else {
+        // Other systems - basic fields for now
+        fields = [
+          { key: 'id', title: 'ID', type: 'system' },
+          { key: 'title', title: 'Title', type: 'system' },
+          { key: 'status', title: 'Status', type: 'system' }
+        ];
+      }
+
+      setFields(fields);
+    } catch (error) {
+      console.error('Failed to load fields for system:', system, error);
+      if (addErrorRef.current) {
+        addErrorRef.current(`Failed to load fields for ${system}`);
+      }
+      setFields([]);
+    } finally {
+      setLoading(false);
+      loadingRef.current = false;
+    }
+  }, []); // Empty dependency array to prevent recreation
+
+  // Load fields when source system changes (only if modal is open)
+  useEffect(() => {
+    if (showAddMapping && sourceSystem) {
+      loadFieldsForSystem(sourceSystem, true);
+    }
+  }, [sourceSystem, loadFieldsForSystem, showAddMapping]);
+
+  // Load fields when target system changes (only if modal is open)
+  useEffect(() => {
+    if (showAddMapping && targetSystem) {
+      loadFieldsForSystem(targetSystem, false);
+    }
+  }, [targetSystem, loadFieldsForSystem, showAddMapping]);
+
+  // Initialize fields when modal opens
+  useEffect(() => {
+    if (showAddMapping) {
+      // Load initial fields for default systems
+      loadFieldsForSystem(sourceSystem, true);
+      loadFieldsForSystem(targetSystem, false);
+    }
+  }, [showAddMapping, sourceSystem, targetSystem, loadFieldsForSystem]);
+
+  // Check system connectivity status on component mount
+  useEffect(() => {
+    if (hasCheckedConnectivity.current) return;
+    
+    const checkSystemConnectivity = async () => {
+      hasCheckedConnectivity.current = true;
+      
+      // Check Zendesk connectivity
+      try {
+        const zendeskResponse = await fetch('/api/zendesk/credentials');
+        if (zendeskResponse.ok) {
+          updateSystemStatusRef.current('zendesk', 'connected');
+        }
+      } catch (error) {
+        console.log('Zendesk not connected');
+      }
+
+      // Check Jira connectivity
+      try {
+        const jiraResponse = await fetch('/api/jira/credentials');
+        if (jiraResponse.ok) {
+          updateSystemStatusRef.current('jira', 'connected');
+        }
+      } catch (error) {
+        console.log('Jira not connected');
+      }
+    };
+
+    checkSystemConnectivity();
+  }, []); // Remove updateSystemStatus from dependencies
 
   // Refresh Zendesk custom field names
   const refreshZendeskFieldNames = useCallback(async () => {
@@ -570,7 +774,10 @@ const SettingsPage = () => {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deleteMapping(mapping.id)}
+                            onClick={() => {
+                              console.log('Delete button clicked for mapping:', mapping);
+                              setMappingToDelete(mapping);
+                            }}
                             className="p-2 text-gray-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Delete mapping"
                           >
@@ -608,7 +815,10 @@ const SettingsPage = () => {
                   <label className="block text-sm font-medium text-gray-900 mb-2">Source System</label>
                   <select 
                     value={sourceSystem}
-                    onChange={(e) => setSourceSystem(e.target.value)}
+                    onChange={(e) => {
+                      setSourceSystem(e.target.value);
+                      setSourceField(''); // Reset field when system changes
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                   >
                     <option>Zendesk</option>
@@ -625,10 +835,22 @@ const SettingsPage = () => {
                     value={sourceField}
                     onChange={(e) => setSourceField(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    disabled={loadingSourceFields || sourceFields.length === 0}
                   >
-                    <option>id</option>
-                    <option>external_ref</option>
-                    <option>linked_ticket</option>
+                    {loadingSourceFields ? (
+                      <option>Loading fields...</option>
+                    ) : sourceFields.length === 0 ? (
+                      <option>No fields available</option>
+                    ) : (
+                      <>
+                        <option value="">Select a field</option>
+                        {sourceFields.map((field) => (
+                          <option key={field.key} value={field.key}>
+                            {field.title} {field.type === 'custom' ? '(Custom)' : ''}
+                          </option>
+                        ))}
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -642,7 +864,10 @@ const SettingsPage = () => {
                   <label className="block text-sm font-medium text-gray-900 mb-2">Target System</label>
                   <select 
                     value={targetSystem}
-                    onChange={(e) => setTargetSystem(e.target.value)}
+                    onChange={(e) => {
+                      setTargetSystem(e.target.value);
+                      setTargetField(''); // Reset field when system changes
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
                   >
                     <option>Jira</option>
@@ -659,10 +884,22 @@ const SettingsPage = () => {
                     value={targetField}
                     onChange={(e) => setTargetField(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900"
+                    disabled={loadingTargetFields || targetFields.length === 0}
                   >
-                    <option>id</option>
-                    <option>key</option>
-                    <option>ticket_number</option>
+                    {loadingTargetFields ? (
+                      <option>Loading fields...</option>
+                    ) : targetFields.length === 0 ? (
+                      <option>No fields available</option>
+                    ) : (
+                      <>
+                        <option value="">Select a field</option>
+                        {targetFields.map((field) => (
+                          <option key={field.key} value={field.key}>
+                            {field.title} {field.type === 'custom' ? '(Custom)' : ''}
+                          </option>
+                        ))}
+                      </>
+                    )}
                   </select>
                 </div>
               </div>
@@ -675,6 +912,28 @@ const SettingsPage = () => {
                   onChange={(e) => setMappingName(e.target.value)}
                   placeholder="e.g., Support Escalation Tracking"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-900 placeholder-gray-500"
+                />
+              </div>
+
+              {/* Field Transformations */}
+              <div className="border-t pt-4 space-y-4">
+                <h4 className="text-sm font-semibold text-gray-900">Field Transformations</h4>
+                <p className="text-xs text-gray-600">
+                  Configure transformations to extract or modify field values before matching (e.g., extract issue key from URL).
+                </p>
+                
+                <FieldTransformationConfig
+                  value={sourceTransform}
+                  onChange={setSourceTransform}
+                  fieldType="source"
+                  label="Source"
+                />
+                
+                <FieldTransformationConfig
+                  value={targetTransform}
+                  onChange={setTargetTransform}
+                  fieldType="target"
+                  label="Target"
                 />
               </div>
             </div>
@@ -700,15 +959,22 @@ const SettingsPage = () => {
                       sourceField,
                       targetSystem,
                       targetField,
-                      mappingName: mappingName.trim()
+                      mappingName: mappingName.trim(),
+                      sourceTransform: sourceTransform?.config,
+                      targetTransform: targetTransform?.config,
+                      transformationType: sourceTransform?.transformationType || targetTransform?.transformationType
                     });
 
                     // Reset form and close modal
                     setSourceSystem('Zendesk');
-                    setSourceField('id');
+                    setSourceField('');
                     setTargetSystem('Jira');
-                    setTargetField('id');
+                    setTargetField('');
                     setMappingName('');
+                    setSourceTransform(null);
+                    setTargetTransform(null);
+                    setSourceFields([]);
+                    setTargetFields([]);
                     setShowAddMapping(false);
                   } catch (error) {
                     console.error('Error creating mapping:', error);
@@ -723,6 +989,39 @@ const SettingsPage = () => {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <Modal 
+        isOpen={!!mappingToDelete}
+        onClose={() => setMappingToDelete(null)}
+        title="Delete Field Mapping"
+      >
+        {mappingToDelete && (
+          <>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete the mapping &quot;{mappingToDelete.mappingName}&quot;?
+              <br />
+              <span className="text-sm text-gray-500 mt-2 block">
+                {mappingToDelete.sourceSystem}.{mappingToDelete.sourceField} → {mappingToDelete.targetSystem}.{mappingToDelete.targetField}
+              </span>
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setMappingToDelete(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleDeleteMapping}
+              >
+                Delete Mapping
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
 
       {/* Zendesk Configuration Modal */}
       <ZendeskConfigModal

@@ -119,17 +119,23 @@ model RecordLink {
 }
 
 model FieldMapping {
-  id             String       @id @default(cuid())
-  organizationId String       @map("organization_id")
-  sourceSystem   String       @map("source_system")
-  sourceField    String       @map("source_field")
-  targetSystem   String       @map("target_system")
-  targetField    String       @map("target_field")
-  mappingName    String       @map("mapping_name")
-  isActive       Boolean      @default(true) @map("is_active")
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id                    String       @id @default(cuid())
+  organizationId        String       @map("organization_id")
+  sourceSystem          String       @map("source_system")
+  sourceField           String       @map("source_field")
+  targetSystem          String       @map("target_system")
+  targetField           String       @map("target_field")
+  mappingName           String       @map("mapping_name")
+  isActive              Boolean      @default(true) @map("is_active")
+  
+  // Field transformation settings
+  sourceTransform       String?      @map("source_transform")        // JSON string with transformation rules
+  targetTransform       String?      @map("target_transform")        // JSON string with transformation rules
+  transformationType    String?      @map("transformation_type")     // 'regex', 'extract_url_path', 'custom', etc.
+  
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, sourceSystem, sourceField, targetSystem, targetField])
   @@map("field_mappings")

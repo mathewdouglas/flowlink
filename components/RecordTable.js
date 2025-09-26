@@ -119,21 +119,30 @@ const RecordTable = ({
                     {record.hasLinks ? (
                       <div className="flex items-center gap-2">
                         <Link className="w-4 h-4 text-green-500" />
-                        <span className="text-xs text-green-600 font-medium">
-                          Linked ({record.linkedRecords.length})
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          Linked ({record.linkedRecords?.length || 0})
                         </span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <X className="w-4 h-4 text-gray-500" />
-                        <span className="text-xs text-gray-700 font-medium">Unlinked</span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                          Unlinked
+                        </span>
                       </div>
                     )}
                   </td>
                   {getVisibleColumnsInOrder().map(columnKey => {
+                    const meta = currentColumnMetadata[columnKey];
+                    
+                    // Skip if metadata doesn't exist for this column (same check as header)
+                    if (!meta) {
+                      console.warn(`No metadata found for column: ${columnKey} in body`);
+                      return null;
+                    }
+                    
                     const cellRecord = getCellRecordForColumn(record, columnKey);
                     const [, field] = columnKey.split('.');
-                    const meta = currentColumnMetadata[columnKey];
                     const isTextColumn = field === 'subject' || field === 'summary' || field === 'title' || field === 'description';
                     const isBooleanColumn = meta && meta.type === 'boolean';
                     
@@ -151,7 +160,7 @@ const RecordTable = ({
                         {renderTableCell(cellRecord, columnKey)}
                       </td>
                     );
-                  })}
+                  }).filter(Boolean)}
                   <td className="px-4 py-2 whitespace-nowrap text-sm font-medium align-middle">
                     <div className="flex items-center gap-2">
                       <button className="text-blue-600 hover:text-blue-800 transition-colors duration-200 cursor-pointer" title="Open in source system">

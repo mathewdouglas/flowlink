@@ -124,10 +124,28 @@ export const getCustomFields = (record) => {
  */
 export const getCellRecordForColumn = (record, columnKey) => {
   const [system] = columnKey.split('.');
-  if (record.sourceSystem === system) return record;
+  
+  // If this is a linked record with the new structure
+  if (record.records && typeof record.records === 'object') {
+    // Look for the system-specific record in record.records[system]
+    if (record.records[system]) {
+      return record.records[system];
+    }
+  }
+  
+  // Legacy structure: check if record itself matches the system
+  if (record.sourceSystem === system) {
+    return record;
+  }
+  
+  // Legacy structure: check linkedRecords array
   if (record.linkedRecords && record.linkedRecords.length > 0) {
     const match = record.linkedRecords.find(lr => lr.sourceSystem === system);
-    if (match) return match;
+    if (match) {
+      return match;
+    }
   }
-  return record; // fallback
+  
+  // Return null instead of fallback - this system doesn't exist for this record
+  return null;
 };

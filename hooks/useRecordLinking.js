@@ -78,7 +78,6 @@ export function useFieldMappings(organizationId) {
       }
       mutate(); // Refresh the data
     },
-    deleteMapping: async () => {},
     mutate
   };
 }
