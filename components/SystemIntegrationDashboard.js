@@ -89,6 +89,7 @@ const SystemIntegrationDashboard = () => {
 
   // Database hooks for real data
   const [selectedSystem, setSelectedSystem] = useState('all');
+  const [availableZendeskFields, setAvailableZendeskFields] = useState([]); // Store Zendesk custom field definitions
   
   // Use linked records instead of individual records
   const { linkedRecords: linkedRecordsData, stats: linkedStats, isLoading: isLinkedLoading, mutate: mutateLinked } = useLinkedRecords(CURRENT_ORG_ID);
@@ -205,6 +206,28 @@ const SystemIntegrationDashboard = () => {
     }));
   };
 
+  // Fetch Zendesk custom fields for better column naming
+  const fetchZendeskCustomFields = useCallback(async () => {
+    try {
+      const credentialsRes = await fetch('/api/zendesk/credentials');
+      if (!credentialsRes.ok) return;
+      
+      const credentials = await credentialsRes.json();
+      if (!credentials.configured) return;
+
+      const customFieldsRes = await fetch(
+        `/api/zendesk/custom-fields?subdomain=${credentials.subdomain}&email=${encodeURIComponent(credentials.email)}&apiKey=${encodeURIComponent(credentials.apiKey)}`
+      );
+      
+      if (customFieldsRes.ok) {
+        const customFieldsData = await customFieldsRes.json();
+        setAvailableZendeskFields(customFieldsData.customFields || []);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch Zendesk custom fields:', error);
+    }
+  }, []);
+
   // Check Zendesk connection status
   const checkZendeskConnection = useCallback(async () => {
     updateSystemStatus('Zendesk', 'pending');
@@ -214,6 +237,8 @@ const SystemIntegrationDashboard = () => {
         const data = await res.json();
         if (data.connected) {
           updateSystemStatus('Zendesk', 'connected');
+          // Fetch custom fields when connected
+          fetchZendeskCustomFields();
         } else {
           updateSystemStatus('Zendesk', data.status === 'not_configured' ? 'not connected' : 'error');
         }
@@ -223,7 +248,7 @@ const SystemIntegrationDashboard = () => {
     } catch {
       updateSystemStatus('Zendesk', 'error');
     }
-  }, []);
+  }, [fetchZendeskCustomFields]);
 
   // Check connection status on mount
   useEffect(() => {
@@ -515,11 +540,20 @@ const SystemIntegrationDashboard = () => {
       }
     });
 
+    // Also include all available Zendesk custom fields from API (not just those with data)
+    availableZendeskFields.forEach(field => {
+      zendeskCustomFieldIds.add(field.id.toString());
+    });
+
     // Add Zendesk custom fields to metadata (limit to reasonable number and filter out unused ones)
     const commonlyUsedFields = Array.from(zendeskCustomFieldIds)
-      .slice(0, 50) // Limit to first 50 fields to prevent UI overload
+      .slice(0, 100) // Increased limit since we want to show all available fields
       .filter(fieldId => {
-        // Only include fields that have actual values in the data
+        // Include fields that have actual values in the data OR are available in the API
+        const hasApiDefinition = availableZendeskFields.some(field => field.id.toString() === fieldId);
+        if (hasApiDefinition) return true; // Always include fields we have definitions for
+        
+        // Otherwise, check if field has values in records
         let hasValue = false;
         for (const record of records) {
           let zendeskRecord = null;
@@ -538,7 +572,8 @@ const SystemIntegrationDashboard = () => {
               }
               
               const value = customFields[fieldId];
-              if (value !== null && value !== undefined && value !== '') {
+              // Include fields that have any value, including false, 0, empty string - only exclude null/undefined
+              if (value !== null && value !== undefined) {
                 hasValue = true;
                 break;
               }
@@ -594,18 +629,24 @@ const SystemIntegrationDashboard = () => {
         }
       }
       
+      // Get field name from Zendesk API data if available
+      const zendeskFieldData = availableZendeskFields.find(field => field.id.toString() === fieldId);
+      const fieldLabel = columnDisplayNames[`zendesk.custom_${fieldId}`] || 
+                        (zendeskFieldData ? zendeskFieldData.title : `Custom Field ${fieldId}`);
+      
       zendeskCustomFieldMetadata[`zendesk.custom_${fieldId}`] = {
-        label: columnDisplayNames[`zendesk.custom_${fieldId}`] || `Custom Field ${fieldId}`,
+        label: fieldLabel,
         color: 'green',
         group: 'zendesk',
         type: isBooleanField ? 'boolean' : 'text',
         isZendeskCustom: true,
-        fieldId: fieldId
+        fieldId: fieldId,
+        zendeskFieldData: zendeskFieldData // Store the API data for reference
       };
     });
 
     return { ...systemColumns, ...customColumnMetadata, ...zendeskCustomFieldMetadata };
-  }, [records, customColumns, columnMetadata, columnDisplayNames, linkedRecordsData, hasActualLinkedPairs]);
+  }, [records, customColumns, columnMetadata, columnDisplayNames, linkedRecordsData, hasActualLinkedPairs, availableZendeskFields]);
 
   // Drag and drop state
   const [draggedColumn, setDraggedColumn] = useState(null);
