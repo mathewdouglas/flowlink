@@ -11,8 +11,9 @@ export function useSyncService(organizationId) {
     organizationId ? `/api/admin/services?organizationId=${organizationId}` : null,
     fetcher,
     {
-      refreshInterval: 30000, // Refresh every 30 seconds
-      revalidateOnFocus: true
+      refreshInterval: 120000, // Refresh every 2 minutes (reduced from 30s)
+      revalidateOnFocus: false, // Don't refresh on focus to prevent excessive calls
+      revalidateOnReconnect: false // Don't refresh on reconnect
     }
   );
 

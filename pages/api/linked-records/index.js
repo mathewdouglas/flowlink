@@ -93,11 +93,22 @@ export default async function handler(req, res) {
         const primaryLink = Array.from(connectedLinks)[0];
         const metadata = JSON.parse(primaryLink.metadata || '{}');
         
-        // Create records map organized by system type
+        // Create records map organized by system type (handle multiple records per system)
         const recordsMap = {};
+        const recordsBySystem = {}; // Track all records by system for proper handling
+        
         connectedRecords.forEach((record, recordId) => {
           const systemType = record.sourceIntegration.systemType;
-          recordsMap[systemType] = record;
+          
+          if (!recordsBySystem[systemType]) {
+            recordsBySystem[systemType] = [];
+          }
+          recordsBySystem[systemType].push(record);
+          
+          // For the main recordsMap, use the first record of each system as primary
+          if (!recordsMap[systemType]) {
+            recordsMap[systemType] = record;
+          }
         });
 
         // Create combined data from all linked records
@@ -114,12 +125,20 @@ export default async function handler(req, res) {
           priority: recordsArray.find(r => r.priority)?.priority || 'N/A'
         };
 
-        // Add system-specific combined data
-        recordsArray.forEach(record => {
-          const systemType = record.sourceIntegration.systemType;
-          combinedData[`${systemType}_id`] = record.sourceId;
-          combinedData[`${systemType}_subject`] = record.title || record.subject;
-          combinedData[`${systemType}_status`] = record.status;
+        // Add system-specific combined data (handle multiple records per system)
+        Object.keys(recordsBySystem).forEach(systemType => {
+          const systemRecords = recordsBySystem[systemType];
+          const primaryRecord = systemRecords[0]; // Use first record as primary
+          
+          combinedData[`${systemType}_id`] = primaryRecord.sourceId;
+          combinedData[`${systemType}_subject`] = primaryRecord.title || primaryRecord.subject;
+          combinedData[`${systemType}_status`] = primaryRecord.status;
+          
+          // If multiple records from same system, add additional info
+          if (systemRecords.length > 1) {
+            combinedData[`${systemType}_count`] = systemRecords.length;
+            combinedData[`${systemType}_additional_ids`] = systemRecords.slice(1).map(r => r.sourceId);
+          }
         });
 
         linkGroups.push({

@@ -159,15 +159,9 @@ export default async function handler(req, res) {
             let jiraResult = 'No Jira credentials found';
             if (jiraCredentials) {
               if (jiraCredentials.email && jiraCredentials.apiKey) {
-                const jiraConfig = jiraCredentials.customConfig ? JSON.parse(jiraCredentials.customConfig) : {};
-                const baseUrl = jiraConfig.url || `https://${jiraConfig.subdomain}.atlassian.net`;
-                
                 try {
-                  jiraResult = await jiraSyncService.syncJiraIssues(orgId, {
-                    baseUrl: baseUrl,
-                    email: jiraCredentials.email,
-                    apiToken: jiraCredentials.apiKey
-                  });
+                  // Pass the full credentials object as expected by syncJiraIssues
+                  jiraResult = await jiraSyncService.syncJiraIssues(orgId, jiraCredentials);
                 } catch (error) {
                   jiraResult = `Jira sync failed: ${error.message}`;
                 }
@@ -242,18 +236,5 @@ export default async function handler(req, res) {
   res.status(405).end(`Method ${req.method} Not Allowed`);
 }
 
-// Auto-start both services when this module loads
-if (typeof window === 'undefined' && !isServiceInitialized) {
-  // Only run on server side
-  setTimeout(async () => {
-    try {
-      console.log('Auto-starting background sync services (Zendesk & Jira)...');
-      await zendeskSyncService.start();
-      await jiraSyncService.start();
-      isServiceInitialized = true;
-      console.log('Background sync services auto-started successfully');
-    } catch (error) {
-      console.error('Failed to auto-start background sync services:', error);
-    }
-  }, 2000); // Wait 2 seconds after server start
-}
+// Services must be manually started via POST request
+// No auto-start to prevent performance issues with node-cron
