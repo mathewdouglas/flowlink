@@ -334,6 +334,7 @@ const SystemIntegrationDashboard = () => {
         setFilterSystem(config.filters.filterSystem || 'all');
         setFilterStatusColumn(config.filters.filterStatusColumn || 'all');
         setFilterStatusValue(config.filters.filterStatusValue || 'all');
+        setHideSolvedTickets(config.filters.hideSolvedTickets || false);
       }
     } else if (!hasInitialized) {
       // Set default visible columns based on whether we have linked records (only once)
@@ -371,6 +372,7 @@ const SystemIntegrationDashboard = () => {
   const [filterSystem, setFilterSystem] = useState('all');
   const [filterStatusColumn, setFilterStatusColumn] = useState('all');
   const [filterStatusValue, setFilterStatusValue] = useState('all');
+  const [hideSolvedTickets, setHideSolvedTickets] = useState(false);
 
   // Auto-save configuration when columns change with debouncing
   const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true, filterOverrides = {}) => {
@@ -390,7 +392,8 @@ const SystemIntegrationDashboard = () => {
         filters: {
           filterSystem: filterOverrides.filterSystem !== undefined ? filterOverrides.filterSystem : filterSystem,
           filterStatusColumn: filterOverrides.filterStatusColumn !== undefined ? filterOverrides.filterStatusColumn : filterStatusColumn,
-          filterStatusValue: filterOverrides.filterStatusValue !== undefined ? filterOverrides.filterStatusValue : filterStatusValue
+          filterStatusValue: filterOverrides.filterStatusValue !== undefined ? filterOverrides.filterStatusValue : filterStatusValue,
+          hideSolvedTickets: filterOverrides.hideSolvedTickets !== undefined ? filterOverrides.hideSolvedTickets : hideSolvedTickets
         }
       });
       if (showStatus) {
@@ -407,7 +410,7 @@ const SystemIntegrationDashboard = () => {
     } finally {
       autoSaveRunningRef.current = false;
     }
-  }, [saveConfig, filterSystem, filterStatusColumn, filterStatusValue]);
+  }, [saveConfig, filterSystem, filterStatusColumn, filterStatusValue, hideSolvedTickets]);
 
   // Field mapping and linking configuration (keep for future enhancement)
   const [fieldMappings, setFieldMappings] = useState(DEFAULT_FIELD_MAPPINGS);
@@ -787,6 +790,13 @@ const SystemIntegrationDashboard = () => {
     }, 100);
   }, [visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, autoSaveConfig]);
 
+  const handleHideSolvedTicketsChange = useCallback((newHideSolvedTickets) => {
+    setHideSolvedTickets(newHideSolvedTickets);
+    setTimeout(() => {
+      autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, false, { hideSolvedTickets: newHideSolvedTickets });
+    }, 100);
+  }, [visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, autoSaveConfig]);
+
   // Integration status state
   const [integrationStatuses, setIntegrationStatuses] = useState({
     zendesk: { status: 'checking', connected: false },
@@ -943,8 +953,16 @@ const SystemIntegrationDashboard = () => {
       return true;
     })();
 
+    // Hide solved tickets filter
+    const matchesSolvedFilter = !hideSolvedTickets || (() => {
+      // Check if the record status indicates it's solved/closed
+      const status = record.status?.toLowerCase() || '';
+      const solvedStatuses = ['solved', 'closed', 'resolved', 'done', 'complete', 'completed'];
+      return !solvedStatuses.includes(status);
+    })();
+
     // System filter (handled by selectedSystem already)
-    return matchesSearch && matchesStatus && matchesLinkStatus;
+    return matchesSearch && matchesStatus && matchesLinkStatus && matchesSolvedFilter;
   });
 
   // Sorting handler
@@ -2067,6 +2085,10 @@ const SystemIntegrationDashboard = () => {
           filterStatusValue={filterStatusValue}
           setFilterStatusValue={handleFilterStatusValueChange}
           
+          // Hide solved tickets filter
+          hideSolvedTickets={hideSolvedTickets}
+          setHideSolvedTickets={handleHideSolvedTicketsChange}
+          
           // Available options
           getAvailableStatusColumns={getAvailableStatusColumns}
           getAvailableStatusValues={getAvailableStatusValues}
@@ -2080,6 +2102,11 @@ const SystemIntegrationDashboard = () => {
               {filterSystem !== 'all' && (
                 <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
                   {filterSystem === 'linked' ? 'Linked Only' : 'Unlinked Only'}
+                </span>
+              )}
+              {hideSolvedTickets && (
+                <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                  Solved Hidden
                 </span>
               )}
               {(searchTerm || filterStatusColumn !== 'all') && (
