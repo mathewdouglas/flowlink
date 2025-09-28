@@ -103,11 +103,15 @@ const SystemIntegrationDashboard = () => {
   // Transform linked records data to match the expected structure for the table
   const processLinkedRecordsData = (linkedRecordsData) => {
     return linkedRecordsData.map(linkedRecord => {
-      // For linked pairs, create a synthetic record that represents the combination
-      if (linkedRecord.records && Object.keys(linkedRecord.records).length > 1) {
+      // Check if this is a linked pair by looking at isUnlinked flag and records count
+      const isLinkedPair = linkedRecord.isUnlinked === false && 
+                          linkedRecord.records && 
+                          Object.keys(linkedRecord.records).length > 1;
+      
+      if (isLinkedPair) {
         // This is a linked pair - create a combined record
         const systems = Object.keys(linkedRecord.records);
-        // Use the sourceSystem as the primary system, not the first key
+        // Use the sourceSystem as the primary system
         const primarySystem = linkedRecord.sourceSystem;
         const primaryRecord = linkedRecord.records[primarySystem];
         
@@ -125,32 +129,51 @@ const SystemIntegrationDashboard = () => {
           sourceSystem: linkedRecord.sourceSystem,
           targetSystem: linkedRecord.targetSystem,
           linkedField: linkedRecord.linkedField,
-          linkedValue: linkedRecord.linkedValue
+          linkedValue: linkedRecord.linkedValue,
+          isUnlinked: false,
+          // Preserve the original records structure for getCellRecordForColumn
+          records: linkedRecord.records
         };
         
         // Debug the transformation
-        console.log(`DEBUG processLinkedRecordsData:`, {
-          originalSourceSystem: linkedRecord.sourceSystem,
+        console.log(`DEBUG processLinkedRecordsData (LINKED):`, {
+          linkedRecordId: linkedRecord.id,
+          isUnlinked: linkedRecord.isUnlinked,
           systems,
           primarySystem,
-          primaryRecordStatus: primaryRecord.status,
-          primaryRecordSourceSystem: primaryRecord.sourceSystem,
-          resultSourceSystem: result.sourceSystem,
-          resultStatus: result.status,
-          linkedRecordsStatuses: result.linkedRecords.map(lr => ({system: lr.sourceSystem, status: lr.status}))
+          resultIsLinkedPair: result.isLinkedPair,
+          resultHasLinks: result.hasLinks,
+          resultIsUnlinked: result.isUnlinked,
+          linkedRecordsLength: result.linkedRecords.length
         });
         
         return result;
       } else {
         // This is an individual record - keep as is
         const singleSystem = Object.keys(linkedRecord.records)[0];
-        return {
-          ...linkedRecord.records[singleSystem],
+        const individualRecord = linkedRecord.records[singleSystem];
+        
+        const result = {
+          ...individualRecord,
+          id: linkedRecord.id,
           isLinkedPair: false,
           linkedRecords: [],
           hasLinks: false,
-          isUnlinked: linkedRecord.isUnlinked
+          isUnlinked: linkedRecord.isUnlinked,
+          // Preserve the records structure for consistency
+          records: linkedRecord.records
         };
+        
+        // Debug the transformation
+        console.log(`DEBUG processLinkedRecordsData (UNLINKED):`, {
+          linkedRecordId: linkedRecord.id,
+          isUnlinked: linkedRecord.isUnlinked,
+          resultIsLinkedPair: result.isLinkedPair,
+          resultHasLinks: result.hasLinks,
+          resultIsUnlinked: result.isUnlinked
+        });
+        
+        return result;
       }
     });
   };
@@ -268,6 +291,13 @@ const SystemIntegrationDashboard = () => {
       setColumnOrder(config.columnOrder || []);
       setColumnDisplayNames(config.columnDisplayNames || {});
       setGraphsExpanded(config.graphsExpanded !== false); // Default to true if not set
+      
+      // Load filter state from config
+      if (config.filters) {
+        setFilterSystem(config.filters.filterSystem || 'all');
+        setFilterStatusColumn(config.filters.filterStatusColumn || 'all');
+        setFilterStatusValue(config.filters.filterStatusValue || 'all');
+      }
     } else {
       // Set default visible columns based on whether we have linked records
       let defaultColumns = DEFAULT_COLUMNS;
@@ -295,8 +325,14 @@ const SystemIntegrationDashboard = () => {
     }
   }, [config, shouldUseLinkedRecords, hasActualLinkedPairs]);
 
+  // Filter state declarations (must be before autoSaveConfig)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterSystem, setFilterSystem] = useState('all');
+  const [filterStatusColumn, setFilterStatusColumn] = useState('all');
+  const [filterStatusValue, setFilterStatusValue] = useState('all');
+
   // Auto-save configuration when columns change with debouncing
-  const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true) => {
+  const autoSaveConfig = useCallback(async (columns, order, displayNames, expanded, showStatus = true, filterOverrides = {}) => {
     // Prevent multiple simultaneous saves
     if (autoSaveRunningRef.current) {
       return;
@@ -310,7 +346,11 @@ const SystemIntegrationDashboard = () => {
         columnOrder: order,
         columnDisplayNames: displayNames,
         graphsExpanded: expanded !== undefined ? expanded : true,
-        filters: {} // Add filter state here when implemented
+        filters: {
+          filterSystem: filterOverrides.filterSystem !== undefined ? filterOverrides.filterSystem : filterSystem,
+          filterStatusColumn: filterOverrides.filterStatusColumn !== undefined ? filterOverrides.filterStatusColumn : filterStatusColumn,
+          filterStatusValue: filterOverrides.filterStatusValue !== undefined ? filterOverrides.filterStatusValue : filterStatusValue
+        }
       });
       if (showStatus) {
         setConfigSaveStatus('saved');
@@ -326,7 +366,7 @@ const SystemIntegrationDashboard = () => {
     } finally {
       autoSaveRunningRef.current = false;
     }
-  }, [saveConfig]);
+  }, [saveConfig, filterSystem, filterStatusColumn, filterStatusValue]);
 
   // Field mapping and linking configuration (keep for future enhancement)
   const [fieldMappings, setFieldMappings] = useState(DEFAULT_FIELD_MAPPINGS);
@@ -662,10 +702,6 @@ const SystemIntegrationDashboard = () => {
     teams: false
   });
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterSystem, setFilterSystem] = useState('all');
-  const [filterStatusColumn, setFilterStatusColumn] = useState('all');
-  const [filterStatusValue, setFilterStatusValue] = useState('all');
   const [showColumnConfig, setShowColumnConfig] = useState(false);
   const [showCustomColumnForm, setShowCustomColumnForm] = useState(false);
   const [editingColumn, setEditingColumn] = useState(null);
@@ -682,6 +718,33 @@ const SystemIntegrationDashboard = () => {
     setGraphsExpanded(newExpanded);
     autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, newExpanded, false);
   }, [graphsExpanded, visibleColumns, columnOrder, columnDisplayNames, autoSaveConfig]);
+
+  // Handle filter changes with auto-save
+  const handleFilterSystemChange = useCallback((newFilterSystem) => {
+    setFilterSystem(newFilterSystem);
+    // Auto-save filters with a slight delay to batch rapid changes
+    setTimeout(() => {
+      autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, false, { filterSystem: newFilterSystem });
+    }, 100);
+  }, [visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, autoSaveConfig]);
+
+  const handleFilterStatusColumnChange = useCallback((newFilterStatusColumn) => {
+    setFilterStatusColumn(newFilterStatusColumn);
+    setFilterStatusValue('all'); // Reset status value when column changes
+    setTimeout(() => {
+      autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, false, { 
+        filterStatusColumn: newFilterStatusColumn, 
+        filterStatusValue: 'all' 
+      });
+    }, 100);
+  }, [visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, autoSaveConfig]);
+
+  const handleFilterStatusValueChange = useCallback((newFilterStatusValue) => {
+    setFilterStatusValue(newFilterStatusValue);
+    setTimeout(() => {
+      autoSaveConfig(visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, false, { filterStatusValue: newFilterStatusValue });
+    }, 100);
+  }, [visibleColumns, columnOrder, columnDisplayNames, graphsExpanded, autoSaveConfig]);
 
   // Integration status state
   const [integrationStatuses, setIntegrationStatuses] = useState({
@@ -823,8 +886,24 @@ const SystemIntegrationDashboard = () => {
       return String(recordStatus)?.toLowerCase() === filterStatusValue.toLowerCase();
     })();
 
+    // Linked/Unlinked filter
+    const matchesLinkStatus = filterSystem === 'all' || (() => {
+      // Check if this record is linked - either it's a linked pair, has links, or is explicitly not marked as unlinked
+      const isLinkedRecord = record.isLinkedPair || 
+                            (record.hasLinks && record.linkedRecords && record.linkedRecords.length > 0) ||
+                            (record.isUnlinked === false);
+      
+      if (filterSystem === 'linked') {
+        return isLinkedRecord;
+      } else if (filterSystem === 'unlinked') {
+        // A record is unlinked if it's explicitly marked as unlinked OR if it has no links
+        return record.isUnlinked === true || !isLinkedRecord;
+      }
+      return true;
+    })();
+
     // System filter (handled by selectedSystem already)
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesLinkStatus;
   });
 
   // Sorting handler
@@ -920,6 +999,14 @@ const SystemIntegrationDashboard = () => {
 
   // Create linked records structure similar to original dashboard
   const processedRecords = sortedRecords.map(record => {
+    // If the record already has proper linking information from processLinkedRecordsData, preserve it
+    if (record.isLinkedPair === true || record.isLinkedPair === false) {
+      // This record was already processed by processLinkedRecordsData, keep its linking info
+      console.log(`DEBUG processedRecords: Preserving link info for record ${record.id}: hasLinks=${record.hasLinks}, isLinkedPair=${record.isLinkedPair}`);
+      return record;
+    }
+    
+    // Fallback for records that weren't processed (shouldn't happen with new API)
     // Find all links where this record is either source or target - ensure links is always an array
     const safeLinks = Array.isArray(links) ? links : [];
     const recordLinks = safeLinks.filter(link => 
@@ -1864,20 +1951,37 @@ const SystemIntegrationDashboard = () => {
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
           
-          // System filter
+          // System filter with persistence
           filterSystem={filterSystem}
-          setFilterSystem={setFilterSystem}
+          setFilterSystem={handleFilterSystemChange}
           
-          // Status filter
+          // Status filter with persistence
           filterStatusColumn={filterStatusColumn}
-          setFilterStatusColumn={setFilterStatusColumn}
+          setFilterStatusColumn={handleFilterStatusColumnChange}
           filterStatusValue={filterStatusValue}
-          setFilterStatusValue={setFilterStatusValue}
+          setFilterStatusValue={handleFilterStatusValueChange}
           
           // Available options
           getAvailableStatusColumns={getAvailableStatusColumns}
           getAvailableStatusValues={getAvailableStatusValues}
         />
+
+        {/* Records Count Display */}
+        <div className="mb-4 px-1">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              Showing {linkedRecords.length} of {records.length} records
+              {filterSystem !== 'all' && (
+                <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                  {filterSystem === 'linked' ? 'Linked Only' : 'Unlinked Only'}
+                </span>
+              )}
+              {(searchTerm || filterStatusColumn !== 'all') && (
+                <span className="ml-2 text-xs text-gray-500">(filtered)</span>
+              )}
+            </div>
+          </div>
+        </div>
 
         {/* Records Table */}
         <RecordTable 
