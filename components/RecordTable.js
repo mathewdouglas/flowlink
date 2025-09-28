@@ -89,6 +89,10 @@ const RecordTable = ({
                   
                   const getColumnWidth = (columnKey, meta) => {
                     const [, field] = columnKey.split('.');
+                    // Special case for custom summary column - make it narrower
+                    if (columnKey === 'custom.summary') {
+                      return 'max-w-48'; // Narrower than max-w-xs
+                    }
                     if (field === 'subject' || field === 'summary' || field === 'title' || field === 'description') {
                       return 'max-w-xs'; // Max width for text-heavy columns
                     }

@@ -125,7 +125,35 @@ export const getCustomFields = (record) => {
 export const getCellRecordForColumn = (record, columnKey) => {
   const [system] = columnKey.split('.');
   
-  // If this is a linked record with the new structure
+  // Handle custom columns - they can access any record in a linked pair
+  if (system === 'custom') {
+    // For linked records (array structure), return the main record (first one)
+    if (record.records && Array.isArray(record.records) && record.records.length > 0) {
+      return record.records[0]; // Return first record for custom fields
+    }
+    // For linked records (object structure)
+    if (record.records && typeof record.records === 'object') {
+      // Return the first available record for custom fields
+      const systemKeys = Object.keys(record.records);
+      if (systemKeys.length > 0) {
+        return record.records[systemKeys[0]];
+      }
+    }
+    // For individual records, return the record itself
+    return record;
+  }
+  
+  // For system-specific columns (zendesk.*, jira.*, etc.)
+  // If this is a linked record with array structure
+  if (record.records && Array.isArray(record.records)) {
+    // Look for the system-specific record in the array
+    const match = record.records.find(r => r.sourceSystem === system);
+    if (match) {
+      return match;
+    }
+  }
+  
+  // If this is a linked record with object structure
   if (record.records && typeof record.records === 'object') {
     // Look for the system-specific record in record.records[system]
     if (record.records[system]) {

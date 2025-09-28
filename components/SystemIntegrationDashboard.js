@@ -102,7 +102,18 @@ const SystemIntegrationDashboard = () => {
   
   // Transform linked records data to match the expected structure for the table
   const processLinkedRecordsData = (linkedRecordsData) => {
+    if (!Array.isArray(linkedRecordsData)) {
+      console.warn('linkedRecordsData is not an array:', linkedRecordsData);
+      return [];
+    }
+    
     return linkedRecordsData.map(linkedRecord => {
+      // Add null checks to prevent runtime errors
+      if (!linkedRecord || !linkedRecord.records) {
+        console.warn('Invalid linkedRecord structure:', linkedRecord);
+        return null;
+      }
+      
       // Check if this is a linked pair by looking at isUnlinked flag and records count
       const isLinkedPair = linkedRecord.isUnlinked === false && 
                           linkedRecord.records && 
@@ -114,6 +125,11 @@ const SystemIntegrationDashboard = () => {
         // Use the sourceSystem as the primary system
         const primarySystem = linkedRecord.sourceSystem;
         const primaryRecord = linkedRecord.records[primarySystem];
+        
+        if (!primaryRecord) {
+          console.warn('Primary record not found for system:', primarySystem);
+          return null;
+        }
         
         // Get all other systems for linkedRecords array
         const otherSystems = systems.filter(system => system !== primarySystem);
@@ -150,8 +166,19 @@ const SystemIntegrationDashboard = () => {
         return result;
       } else {
         // This is an individual record - keep as is
-        const singleSystem = Object.keys(linkedRecord.records)[0];
+        const systems = Object.keys(linkedRecord.records);
+        if (systems.length === 0) {
+          console.warn('No systems found in linkedRecord.records:', linkedRecord);
+          return null;
+        }
+        
+        const singleSystem = systems[0];
         const individualRecord = linkedRecord.records[singleSystem];
+        
+        if (!individualRecord) {
+          console.warn('Individual record not found for system:', singleSystem);
+          return null;
+        }
         
         const result = {
           ...individualRecord,
@@ -175,10 +202,12 @@ const SystemIntegrationDashboard = () => {
         
         return result;
       }
-    });
+    }).filter(Boolean); // Remove null/undefined entries
   };
   
-  const records = shouldUseLinkedRecords ? processLinkedRecordsData(linkedRecordsData) : individualRecords;
+  const records = useMemo(() => {
+    return shouldUseLinkedRecords ? processLinkedRecordsData(linkedRecordsData || []) : (individualRecords || []);
+  }, [shouldUseLinkedRecords, linkedRecordsData, individualRecords]);
   const isLoading = isLinkedLoading || isIndividualLoading;
 
   // Debug: Log what types of records we're working with
@@ -193,7 +222,8 @@ const SystemIntegrationDashboard = () => {
   
   // Check if we actually have linked pairs (not just individual records from the API)
   const hasActualLinkedPairs = shouldUseLinkedRecords && 
-    linkedRecordsData.some(record => record.records && Object.keys(record.records).length > 1);
+    Array.isArray(linkedRecordsData) && 
+    linkedRecordsData.some(record => record && record.records && Object.keys(record.records).length > 1);
   
   const { config, saveConfig } = useDashboardConfig(CURRENT_USER_ID, CURRENT_ORG_ID);
   
@@ -278,11 +308,17 @@ const SystemIntegrationDashboard = () => {
     checkZendeskConnection();
   }, [checkZendeskConnection]);
 
+  // Memoize custom column keys to prevent infinite re-renders
+  const customColumnKeys = useMemo(() => {
+    return customColumns.map(col => `custom.${col.name}`);
+  }, [customColumns]);
+
   // Local state for managing column configuration - use arrays instead of objects for consistency
   const [visibleColumns, setVisibleColumns] = useState([]);
   const [columnOrder, setColumnOrder] = useState([]);
   const [columnDisplayNames, setColumnDisplayNames] = useState({});
   const [graphsExpanded, setGraphsExpanded] = useState(true);
+  const [hasInitialized, setHasInitialized] = useState(false);
 
   // Update local state when config loads
   useEffect(() => {
@@ -291,6 +327,7 @@ const SystemIntegrationDashboard = () => {
       setColumnOrder(config.columnOrder || []);
       setColumnDisplayNames(config.columnDisplayNames || {});
       setGraphsExpanded(config.graphsExpanded !== false); // Default to true if not set
+      setHasInitialized(true);
       
       // Load filter state from config
       if (config.filters) {
@@ -298,8 +335,8 @@ const SystemIntegrationDashboard = () => {
         setFilterStatusColumn(config.filters.filterStatusColumn || 'all');
         setFilterStatusValue(config.filters.filterStatusValue || 'all');
       }
-    } else {
-      // Set default visible columns based on whether we have linked records
+    } else if (!hasInitialized) {
+      // Set default visible columns based on whether we have linked records (only once)
       let defaultColumns = DEFAULT_COLUMNS;
       
       if (shouldUseLinkedRecords && hasActualLinkedPairs) {
@@ -318,12 +355,16 @@ const SystemIntegrationDashboard = () => {
         defaultColumns = [...linkedColumns];
       }
       
+      // Always include custom columns in default view if they exist
+      defaultColumns = [...defaultColumns, ...customColumnKeys];
+      
       setVisibleColumns(defaultColumns);
       setColumnOrder(defaultColumns);
       setColumnDisplayNames({});
       setGraphsExpanded(true); // Default to expanded
+      setHasInitialized(true);
     }
-  }, [config, shouldUseLinkedRecords, hasActualLinkedPairs]);
+  }, [config, shouldUseLinkedRecords, hasActualLinkedPairs, customColumnKeys, hasInitialized]);
 
   // Filter state declarations (must be before autoSaveConfig)
   const [searchTerm, setSearchTerm] = useState('');
@@ -1135,34 +1176,80 @@ const SystemIntegrationDashboard = () => {
 
       console.log('Saving custom field:', { recordId, fieldName, value, processedValue, columnType });
 
-      const response = await fetch(`/api/records/${recordId}/custom-fields`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          customFieldValues: {
-            [fieldName]: processedValue
+      // Find the record to check if it's a linked pair
+      const currentRecord = records.find(r => r.id === recordId);
+      const isLinkedPair = currentRecord && currentRecord.isLinkedPair;
+      
+      if (isLinkedPair && currentRecord.records) {
+        // For linked records, save to all individual records in the pair
+        const updatePromises = [];
+        
+        currentRecord.records.forEach(individualRecord => {
+          if (individualRecord && individualRecord.id) {
+            updatePromises.push(
+              fetch(`/api/records/${individualRecord.id}/custom-fields`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  customFieldValues: {
+                    [fieldName]: processedValue
+                  }
+                }),
+              })
+            );
           }
-        }),
-      });
+        });
+        
+        // Wait for all updates to complete
+        const responses = await Promise.all(updatePromises);
+        
+        // Check if any failed
+        for (const response of responses) {
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error:', response.status, errorText);
+            throw new Error(`Failed to save custom field: ${response.status} ${errorText}`);
+          }
+        }
+        
+        console.log(`Save successful for linked pair: updated ${responses.length} records`);
+      } else {
+        // For individual records, save to the single record
+        const response = await fetch(`/api/records/${recordId}/custom-fields`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            customFieldValues: {
+              [fieldName]: processedValue
+            }
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error:', response.status, errorText);
-        throw new Error(`Failed to save custom field: ${response.status} ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API Error:', response.status, errorText);
+          throw new Error(`Failed to save custom field: ${response.status} ${errorText}`);
+        }
+
+        const result = await response.json();
+        console.log('Save successful:', result);
       }
-
-      const result = await response.json();
-      console.log('Save successful:', result);
 
       // Clear editing state first
       cancelEditing();
 
-      // Refresh the records to show updated data with a slight delay
+      // Refresh the records to show updated data
       setTimeout(async () => {
         console.log('Triggering data refresh...');
-        await mutate();
+        if (shouldUseLinkedRecords) {
+          await mutateLinked();
+        } else {
+          await mutate();
+        }
         console.log('Data refresh completed');
       }, 50);
       
@@ -1526,14 +1613,18 @@ const SystemIntegrationDashboard = () => {
 
       // Render custom column in display mode
       return (
-        <div className="cursor-pointer hover:bg-gray-50 transition-colors rounded w-full h-full" onClick={() => startEditing(record.id, field, value, meta.type)} title="Click to edit">
+        <div className={`${meta?.type === 'boolean' ? '' : 'cursor-pointer hover:bg-blue-50 transition-colors rounded w-full h-full p-1 border border-transparent hover:border-blue-200'}`} onClick={meta?.type === 'boolean' ? undefined : () => startEditing(record.id, field, value, meta.type)} title={meta?.type === 'boolean' ? undefined : "Click to edit"}>
           {meta?.type === 'boolean' ? (
             <div className="flex items-center justify-center">
               <input
                 type="checkbox"
                 checked={value === 'Yes' || value === true}
-                readOnly
+                onChange={(e) => {
+                  const newValue = e.target.checked;
+                  saveCustomFieldEdit(record.id, field, newValue, meta.type);
+                }}
                 className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                disabled={isSavingEdit}
               />
             </div>
           ) : meta?.type === 'select' ? (
@@ -1546,12 +1637,14 @@ const SystemIntegrationDashboard = () => {
                 day: '2-digit', 
                 month: '2-digit', 
                 year: 'numeric' 
-              }) : '-'}
+              }) : <span className="text-gray-400 italic">Click to add date</span>}
             </span>
           ) : (
-            <span className="text-sm text-gray-900 font-medium">{value}</span>
+            <span className="text-sm text-gray-900 font-medium flex items-center">
+              {value === '-' ? <span className="text-gray-400 italic">Click to add {meta.label?.toLowerCase() || field}</span> : value}
+              <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2" />
+            </span>
           )}
-          <Edit3 className="w-3 h-3 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity ml-2 inline" />
         </div>
       );
     }
@@ -1677,18 +1770,31 @@ const SystemIntegrationDashboard = () => {
     }
 
     if (value === null || value === undefined) {
+      // For boolean columns, show an unchecked checkbox instead of "-"
+      if (meta?.type === 'boolean') {
+        return (
+          <div className="flex items-center justify-center">
+            <input
+              type="checkbox"
+              checked={false}
+              readOnly
+              className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+            />
+          </div>
+        );
+      }
       return <span className="text-gray-500 font-medium italic">-</span>;
     }
 
     const color = getSystemColor(targetRecord.sourceSystem);
     
     // Special handling for boolean values - render as checkboxes
-    if (typeof value === 'boolean' || (typeof value === 'string' && (value === 'Yes' || value === 'No'))) {
+    if (meta?.type === 'boolean' || typeof value === 'boolean' || (typeof value === 'string' && (value === 'Yes' || value === 'No' || value === 'true' || value === 'false'))) {
       return (
         <div className="flex items-center justify-center">
           <input
             type="checkbox"
-            checked={value === true || value === 'Yes'}
+            checked={value === true || value === 'Yes' || value === 'true'}
             readOnly
             className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
           />
