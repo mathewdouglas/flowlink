@@ -1116,8 +1116,13 @@ const SystemIntegrationDashboard = () => {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      // Refresh the data display
-      mutate();
+      // Refresh both data sources
+      await Promise.all([
+        mutate(), // Refresh individual records
+        mutateLinked() // Refresh linked records
+      ]);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
     } finally {
       setTimeout(() => {
         setIsRefreshing(false);
